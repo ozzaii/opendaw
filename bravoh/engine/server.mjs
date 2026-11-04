@@ -99,6 +99,11 @@ export const server = createServer(async (request, response) => {
       const room = await serial(key, async () => (await songOf(key)).room((name, graph) => openRoom(rooms.url, name, graph)))
       return room ? send(response, 200, {room, ws: "/rooms"}) : send(response, 404, {why: "no song"})
     }
+    if (request.method === "GET" && method === "bounce") {
+      const wav = await serial(key, async () => (await songOf(key)).bounce(bytes => render(bytes, {samples: loadSample(key)}))).catch(() => null)
+      if (!wav) return send(response, 404, {why: "nothing to play yet"})
+      response.writeHead(200, {"content-type": "audio/wav", "content-length": wav.byteLength}); return response.end(wav)
+    }
     if (request.method === "GET" && method === "sample") {
       const uuid = new URL(request.url, "http://engine").searchParams.get("uuid") ?? ""
       if (!/^[0-9a-f-]{36}$/.test(uuid)) return send(response, 404, {why: "no such sample"})

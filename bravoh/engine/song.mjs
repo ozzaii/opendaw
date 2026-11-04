@@ -12,6 +12,19 @@ const graphOf = bytes => {
   return graph
 }
 const asBuffer = bytes => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+// {sampleRate, frames: [left, right]} as a 16-bit stereo WAV: a quarter of the float file, for a phone's data.
+export const pcm16 = ({sampleRate, frames}) => {
+  const length = frames[0].length, channels = frames.length, data = length * channels * 2
+  const view = new DataView(new ArrayBuffer(44 + data))
+  const text = (at, word) => [...word].forEach((char, i) => view.setUint8(at + i, char.charCodeAt(0)))
+  text(0, "RIFF"); view.setUint32(4, 36 + data, true); text(8, "WAVE"); text(12, "fmt ")
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, channels, true)
+  view.setUint32(24, sampleRate, true); view.setUint32(28, sampleRate * channels * 2, true)
+  view.setUint16(32, channels * 2, true); view.setUint16(34, 16, true); text(36, "data"); view.setUint32(40, data, true)
+  for (let i = 0, at = 44; i < length; i++)
+    for (let c = 0; c < channels; c++, at += 2) view.setInt16(at, Math.round(Math.max(-1, Math.min(1, frames[c][i])) * 32767), true)
+  return new Uint8Array(view.buffer)
+}
 export class Song {
   static async open(dir, key) {
     const song = new Song(dir, key)
@@ -96,7 +109,19 @@ export class Song {
     await this.#save()
     return {undone, turns: taken.size}
   }
+  // The song as one file the phone plays (16-bit WAV), rendered once per change of the song.
+  version = 0
+  #bounce = null
+  async bounce(render) {
+    if (!this.#graph) return null
+    if (this.#bounce?.version !== this.version) {
+      const version = this.version
+      this.#bounce = {version, wav: pcm16(await render(this.bytes()))}
+    }
+    return this.#bounce.wav
+  }
   async #save() {
+    this.version++
     await mkdir(this.dir, {recursive: true})
     const bytes = this.bytes()
     if (!bytes) return
