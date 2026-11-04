@@ -96,8 +96,60 @@ const join = async (service: StudioService): Promise<unknown> => {
             document.documentElement.style.setProperty("--track-height", `${height}px`)
         }
     }
-    fit()
-    setInterval(fit, 1000) // shortcut: polled, not subscribed to the graph; a box-graph update hook if 1 s ever shows
+    // THE CAMERA GOES TO THE CHANGE: a region BRAVOH added, moved or resized (or a new track) is brought on camera,
+    // its bars with a bar of context each side (8 to 16 bars) and its unit's rows scrolled to, and held there a while
+    // before the playhead's follow takes the camera back. The change is not selected: a selection is a box in the
+    // song's room (VertexSelection writes a SelectionBox), and the booth never writes into the song.
+    const {followCursor} = service.timeline
+    const HOLD_MS = 6000
+    let seen: Map<string, string> | undefined, held = 0
+    const unitOf = (box: any): string | undefined => {
+        const track = box.regions?.targetVertex?.unwrapOrNull?.()?.box ?? box
+        const unit = track.tracks?.targetVertex?.unwrapOrNull?.()?.box
+        return unit ? UUID.toString(unit.address.uuid) : undefined
+    }
+    const look = () => {
+        const now = new Map<string, string>(), changed: any[] = []
+        for (const box of project.boxGraph.boxes() as any[]) {
+            if (!box.name.endsWith("RegionBox") && box.name !== "TrackBox") {continue}
+            const id = UUID.toString(box.address.uuid)
+            const mark = `${box.position?.getValue?.() ?? ""}:${box.duration?.getValue?.() ?? ""}:${unitOf(box) ?? ""}`
+            now.set(id, mark)
+            if (seen && seen.get(id) !== mark) {changed.push(box)}
+        }
+        const first = seen === undefined
+        seen = now
+        if (first || changed.length === 0) {return false}
+        const bar = barOf(), regions = changed.filter(box => box.name !== "TrackBox")
+        if (songEnd() > 16 * bar && regions.length > 0) {
+            const from = Math.min(...regions.map(box => box.position.getValue()))
+            const to = Math.max(...regions.map(box => box.position.getValue() + box.duration.getValue()))
+            const start = Math.max(0, Math.floor(from / bar) * bar - bar)
+            const end = Math.min(start + 16 * bar, Math.max(start + 8 * bar, Math.ceil(to / bar) * bar + bar))
+            service.timeline.range.showUnitInterval(start, end)
+        }
+        // after the studio laid the new rows out (it places units on its own animation frame), and at once: the
+        // studio's ScrollModel writes scrollTop back on each scroll event, which cuts a smooth scroll after a pixel
+        const unit = changed.map(unitOf).find(Boolean)
+        setTimeout(() => document.querySelector(`[data-unit="${unit}"]`)?.scrollIntoView({block: "nearest"}), 300)
+        return true
+    }
+    const poll = () => {
+        if (look()) {
+            held = Date.now() + HOLD_MS
+            followCursor.setValue(false)
+        } else if (held && Date.now() > held) {
+            held = 0
+            fitted = -1
+            followCursor.setValue(true)
+            // the song's top again, as the whole-song view starts it (the rows refit under it)
+            const rowsBox = document.querySelector("[data-unit]")?.parentElement
+            if (rowsBox) {rowsBox.scrollTop = 0}
+        }
+        if (!held) {fit()}
+    }
+    poll()
+    setInterval(poll, 1000) // shortcut: polled, not subscribed to the graph; a box-graph update hook if 1 s ever shows
     Object.assign((window as any).booth, {
         play: (from?: number) => {if (from !== undefined) {facade.setPosition(from)} facade.play()},
         stop: () => facade.stop(true),

@@ -1,5 +1,5 @@
 import css from "./AudioUnitTracks.sass?inline"
-import {Lifecycle} from "@opendaw/lib-std"
+import {Lifecycle, UUID} from "@opendaw/lib-std"
 import {createElement} from "@opendaw/lib-jsx"
 import {Vertex} from "@opendaw/lib-box"
 import {Html} from "@opendaw/lib-dom"
@@ -20,7 +20,8 @@ export const AudioUnitTracks = ({lifecycle, project, adapter}: Construct) => {
     const isAux = adapter.type === AudioUnitType.Aux
     const isOutput = adapter.type === AudioUnitType.Output
     const element: HTMLElement = (<div className={Html.buildClassList(className,
-        isAux && "aux", isBus && "bus", isOutput && "output")} data-drag/>)
+        isAux && "aux", isBus && "bus", isOutput && "output")} data-drag
+                                           data-unit={UUID.toString(adapter.uuid)}/>)
     const audioUnitEditing = project.userEditingManager.audioUnit
     lifecycle.own(audioUnitEditing.catchupAndSubscribe(optVertex => optVertex.match({
         none: () => element.classList.remove("editing"),
