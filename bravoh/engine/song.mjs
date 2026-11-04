@@ -45,6 +45,14 @@ export class Song {
   }
   get graph() {return this.#graph}
   bytes() {return this.#graph ? ProjectSkeleton.encode(this.#graph) : null}
+  // A booth opened before any program wrote a song: an empty one under the booth's title, so the studio is there at once.
+  // Not an undo step: there is nothing to take back to. A song that exists is left as it is.
+  async start(name) {
+    if (this.#graph) return {started: false}
+    this.#attach(ProjectSkeleton.empty({createOutputMaximizer: false, createDefaultUser: true}).boxGraph, name ?? "")
+    await this.#save()
+    return {started: true}
+  }
   // A whole new song (openDAW.newProject().openInStudio()): the one before is kept beside it and comes back on undo.
   async replace(buffer, name, turn) {
     const before = this.bytes()

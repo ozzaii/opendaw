@@ -108,6 +108,7 @@ export const server = createServer(async (request, response) => {
     }
     if (request.method !== "POST") return send(response, 405, {why: "POST"})
     const input = JSON.parse((await body(request)) || "{}")
+    if (method === "start") return send(response, 200, await serial(key, async () => (await songOf(key)).start(String(input.name ?? "").slice(0, 200))))
     if (method === "undo") return send(response, 200, await serial(key, async () => (await songOf(key)).undo(Number(input.turns ?? 1))))
     const run = methods[method]
     if (!run) return send(response, 404, {why: "no such method"})
