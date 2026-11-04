@@ -1,0 +1,22 @@
+{
+  "name": "@bravoh/opendaw-runtime",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "scripts": {
+    "build": "esbuild preamble.mjs --bundle --platform=node --format=esm --outfile=dist/preamble.mjs && esbuild proof.mjs --bundle --platform=node --format=esm --outfile=dist/proof.mjs",
+    "proof": "node --import ./dist/preamble.mjs dist/proof.mjs"
+  },
+  "dependencies": {
+    "@opendaw/lib-box": "0.0.103",
+    "@opendaw/lib-dsp": "0.0.100",
+    "@opendaw/lib-std": "0.0.89",
+    "@opendaw/studio-adapters": "0.3.13",
+    "@opendaw/studio-boxes": "0.0.119",
+    "@opendaw/studio-scripting": "0.0.95",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12"
+  }
+}
