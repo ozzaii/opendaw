@@ -57,8 +57,27 @@ const join = async () => {
     const tap = (worklet: AudioNode) => {analyser = audioContext.createAnalyser(); analyser.fftSize = 2048; worklet.connect(analyser)}
     tap(project.startAudioWorklet({unload: async () => {}, load: worklet => tap(worklet)}))
     await project.engine.isReady()
+    // THE SONG LOOPS WHOLE when it sets no loop of its own: past its last region the head goes back
+    // to bar 1, here in the page, so the song itself is never written by its listener.
+    // shortcut: the jump lands on the next frame after the end (<= 16 ms late), use the engine's own loop if that is ever heard
+    project.engine.position.subscribe(owner => {
+        const at = owner.getValue(), loop = project!.timelineBox.loopArea
+        if (loop.enabled.getValue() || !project!.engine.isPlaying.getValue()) return
+        const end = songEnd()
+        if (end > 0 && at >= end) project!.engine.setPosition(0)
+    })
     if (audioContext.state !== "running") await audioContext.resume()
     return {room, boxes: boxGraph.boxes().length, isolated: crossOriginIsolated}
+}
+// The end of the song in pulses: its last region's end, on a whole bar.
+const barOf = () => {
+    const signature = project!.timelineBox.signature
+    return Math.floor(960 * 4 / signature.denominator.getValue()) * signature.nominator.getValue()
+}
+const songEnd = () => {
+    const end = project!.boxGraph.boxes().filter(box => box.name.endsWith("RegionBox"))
+        .reduce((last, box: any) => Math.max(last, (box.position?.getValue?.() ?? 0) + (box.duration?.getValue?.() ?? 0)), 0)
+    return Math.ceil(end / barOf()) * barOf()
 }
 const level = () => {
     if (!analyser) return 0
@@ -74,11 +93,10 @@ const level = () => {
     // The transport as the phone draws it (BRAVOH's boothState.transport): bars from 1, the loop as [from, to).
     transport: () => {
         if (!project) return undefined
-        const timeline = project.timelineBox, signature = timeline.signature
-        const bar = Math.floor(960 * 4 / signature.denominator.getValue()) * signature.nominator.getValue()
+        const timeline = project.timelineBox, bar = barOf()
         const loop = timeline.loopArea, on = loop.enabled.getValue() && loop.to.getValue() > loop.from.getValue()
         const from = on ? Math.floor(loop.from.getValue() / bar) + 1 : 1
-        const end = on ? loop.to.getValue() : timeline.durationInPulses.getValue()
+        const end = on ? loop.to.getValue() : songEnd()
         return {playing: project.engine.isPlaying.getValue(), from, to: Math.max(from + 1, Math.ceil(end / bar) + 1),
             bar: Math.round((project.engine.position.getValue() / bar + 1) * 1000) / 1000, at: Date.now()}
     },
