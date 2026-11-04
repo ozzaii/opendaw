@@ -22,7 +22,12 @@ let project: Project | null = null
 let analyser: AnalyserNode | null = null
 const failed: string[] = []
 const join = async () => {
-    const answer = await engine("room")
+    // A booth opened before the first program wrote a song waits for it (a 404 is "no song yet").
+    let answer = await engine("room")
+    for (let waited = 0; answer.status === 404 && waited < 600; waited++) {
+        await new Promise(resolve => setTimeout(resolve, 1000))
+        answer = await engine("room")
+    }
     if (!answer.ok) return panic(`no room: ${answer.status}`)
     const {room, ws} = await answer.json()
     AnimationFrame.start(window)
