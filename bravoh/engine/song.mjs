@@ -49,7 +49,10 @@ export class Song {
     graph?.subscribeToAllUpdates({onUpdate: () => this.#later()})
   }
   #timer = null
-  #later() {clearTimeout(this.#timer); this.#timer = setTimeout(() => void this.#save(), 500)}
+  #later() {
+    clearTimeout(this.#timer)
+    this.#timer = setTimeout(() => this.#save().catch(error => console.warn(`[engine] ${this.path} not saved:`, error)), 500)
+  }
   // The room the booth page joins, made on first ask for this graph.
   async room(open) {
     if (!this.#graph) return null
@@ -120,13 +123,24 @@ export class Song {
     }
     return this.#bounce.wav
   }
-  async #save() {
+  // ONE SAVE AT A TIME PER SONG, each on its own tmp file. The booth page's writes save on a timer beside a
+  // program's apply: two saves on one ".tmp" raced, the second rename found it gone (ENOENT, staging 11-04),
+  // and the timer's unhandled rejection took the engine and every room with it.
+  #saving = Promise.resolve()
+  #writes = 0
+  #save() {
     this.version++
-    await mkdir(this.dir, {recursive: true})
-    const bytes = this.bytes()
-    if (!bytes) return
-    await writeFile(`${this.path}.tmp`, new Uint8Array(bytes))
-    await rename(`${this.path}.tmp`, this.path)
-    await writeFile(`${this.path}.json`, JSON.stringify({name: this.name}))
+    const write = async () => {
+      await mkdir(this.dir, {recursive: true})
+      const bytes = this.bytes()
+      if (!bytes) return
+      const tmp = `${this.path}.${process.pid}.${++this.#writes}.tmp`
+      await writeFile(tmp, new Uint8Array(bytes))
+      await rename(tmp, this.path)
+      await writeFile(`${this.path}.json`, JSON.stringify({name: this.name}))
+    }
+    const done = this.#saving.then(write, write)
+    this.#saving = done.catch(() => {})
+    return done
   }
 }
