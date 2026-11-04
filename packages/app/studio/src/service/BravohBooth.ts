@@ -28,7 +28,8 @@ export const prepareBooth = (): void => {
     document.head.append(Object.assign(document.createElement("style"), {textContent: `
         .ground > [class^="Header"], .ground > footer, .ground > .room-status,
         [class^="PanelPlaceholder"] > header, [class^="TracksFooter"], .create-buttons {display: none !important}
-        [class^="TimelineHeader"] > * {visibility: hidden}`}))
+        [class^="TimelineHeader"] > * {visibility: hidden}
+        body:not(.booth-joined) > * {visibility: hidden}`}))
 }
 
 export const joinBooth = (service: StudioService): void => {join(service).then(joined.resolve, joined.reject)}
@@ -57,6 +58,8 @@ const join = async (service: StudioService): Promise<unknown> => {
     const {project} = await YService.getOrCreateRoom(Option.None, service, room, {url, params: {token}})
     service.projectProfileService.setProject(project, room)
     service.switchScreen("booth")
+    // nothing of the studio's own (its dashboard, a song list) is on camera before the song is
+    document.body.classList.add("booth-joined")
     const facade = project.engine
     await facade.isReady()
     if (service.audioContext.state !== "running") {await service.audioContext.resume()}
