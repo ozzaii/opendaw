@@ -11,7 +11,9 @@ export const startRooms = (port = 0, host = "127.0.0.1") => new Promise(resolve 
   wss.on("connection", setupWSConnection)
   const server = createServer((_request, response) => {response.writeHead(404); response.end()})
   server.on("upgrade", (request, socket, head) => wss.handleUpgrade(request, socket, head, ws => wss.emit("connection", ws, request)))
-  server.listen(port, host, () => resolve({server, url: `ws://${host}:${server.address().port}`}))
+  // a page outside this host joins through the engine's own port (server.mjs `/rooms/<name>`, bearer-checked)
+  const join = (request, socket, head, docName) => wss.handleUpgrade(request, socket, head, ws => setupWSConnection(ws, request, {docName}))
+  server.listen(port, host, () => resolve({server, join, url: `ws://${host}:${server.address().port}`}))
 })
 // Put one song's graph in a room of its own; the handle ends it.
 export const openRoom = async (url, name, boxGraph) => {

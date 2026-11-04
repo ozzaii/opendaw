@@ -94,7 +94,7 @@ export const server = createServer(async (request, response) => {
     }
     if (request.method === "GET" && method === "room") {
       const room = await serial(key, async () => (await songOf(key)).room((name, graph) => openRoom(rooms.url, name, graph)))
-      return room ? send(response, 200, {room, ws: rooms.url}) : send(response, 404, {why: "no song"})
+      return room ? send(response, 200, {room, ws: "/rooms"}) : send(response, 404, {why: "no song"})
     }
     if (request.method === "GET" && method === "sample") {
       const uuid = new URL(request.url, "http://engine").searchParams.get("uuid") ?? ""
@@ -113,6 +113,14 @@ export const server = createServer(async (request, response) => {
   } catch (error) {
     send(response, 409, {why: String(error?.message ?? error)})
   }
+})
+// THE ROOM FOR A PAGE OUTSIDE THIS HOST (the booth's Chrome): a websocket on this port, `/rooms/<room>?token=`,
+// since a browser's websocket carries no header. The loopback room server itself is never exposed.
+server.on("upgrade", (request, socket, head) => {
+  const url = new URL(request.url ?? "/", "http://engine")
+  const [, rooms_, room] = url.pathname.split("/")
+  if (rooms_ !== "rooms" || !room || url.searchParams.get("token") !== TOKEN) {socket.end("HTTP/1.1 401 Unauthorized\r\n\r\n"); return}
+  rooms.join(request, socket, head, room)
 })
 if (process.argv[1]?.endsWith("server.mjs") || process.env.ENGINE_LISTEN === "1")
   server.listen(Number(process.env.ENGINE_PORT ?? 7790), process.env.ENGINE_HOST ?? "127.0.0.1", () => console.log(`opendaw-engine on ${server.address().address}:${server.address().port}, rooms on ${rooms.url}`))

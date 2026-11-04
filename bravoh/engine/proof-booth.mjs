@@ -31,6 +31,10 @@ log("page joined", {...await page.evaluate(() => window.booth.joined), ms: Date.
 await page.evaluate(() => window.booth.play(0))
 await page.waitForTimeout(1500)
 log("playing", await page.evaluate(() => window.booth.state()))
+log("transport (bars)", await page.evaluate(() => window.booth.transport()))
+await page.evaluate(() => window.booth.move({bar: 5}))
+await page.waitForTimeout(300)
+log("moved to bar 5", await page.evaluate(() => window.booth.transport()))
 globalThis.turn = "t2"
 const edit = await openDAW.getProject()
 const keys = edit.addInstrumentUnit("Tubular", {label: "Keys", volume: -12})

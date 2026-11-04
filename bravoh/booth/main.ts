@@ -41,7 +41,7 @@ const join = async () => {
         soundfontManager: new GlobalSoundfontLoaderManager({fetch: async () => panic("no soundfonts yet")}),
         sampleService: new SampleService(audioContext, BpmDetector.Unknown), soundfontService: new SoundfontService()}
     const doc = new Y.Doc()
-    const provider = new WebsocketProvider(ws, room, doc)
+    const provider = new WebsocketProvider(new URL(ws, location.href.replace(/^http/, "ws")).href, room, doc, {params: {token}})
     await new Promise<void>(resolve => provider.on("sync", (synced: boolean) => {if (synced) resolve()}))
     const boxGraph = new BoxGraph<BoxIO.TypeMap>(Option.wrap(BoxIO.create))
     const sync = await YSync.joinRoom({boxGraph, boxes: doc.getMap("boxes")})
@@ -66,6 +66,27 @@ const level = () => {
     stop: () => project!.engine.stop(true),
     names: () => project?.boxGraph.boxes().map(box => box.name).join(","),
     seek: (position: number) => project!.engine.setPosition(position),
+    // The transport as the phone draws it (BRAVOH's boothState.transport): bars from 1, the loop as [from, to).
+    transport: () => {
+        if (!project) return undefined
+        const timeline = project.timelineBox, signature = timeline.signature
+        const bar = Math.floor(960 * 4 / signature.denominator.getValue()) * signature.nominator.getValue()
+        const loop = timeline.loopArea, on = loop.enabled.getValue() && loop.to.getValue() > loop.from.getValue()
+        const from = on ? Math.floor(loop.from.getValue() / bar) + 1 : 1
+        const end = on ? loop.to.getValue() : timeline.durationInPulses.getValue()
+        return {playing: project.engine.isPlaying.getValue(), from, to: Math.max(from + 1, Math.ceil(end / bar) + 1),
+            bar: Math.round((project.engine.position.getValue() / bar + 1) * 1000) / 1000, at: Date.now()}
+    },
+    // The artist's hand: the head to `bar` (from 1), then play or stop.
+    move: (ask: {playing?: boolean, bar?: number}) => {
+        if (!project) return false
+        const signature = project.timelineBox.signature
+        const bar = Math.floor(960 * 4 / signature.denominator.getValue()) * signature.nominator.getValue()
+        if (ask.bar !== undefined) project.engine.setPosition(Math.max(0, Math.round((ask.bar - 1) * bar)))
+        if (ask.playing === true) project.engine.play()
+        if (ask.playing === false) project.engine.stop(false)
+        return true
+    },
     state: () => ({playing: project?.engine.isPlaying.getValue() ?? false, position: project?.engine.position.getValue() ?? 0,
         bpm: project?.engine.bpm.getValue() ?? 0, level: level(), failed, units: project?.boxGraph.boxes().filter(box => box.name === "AudioUnitBox").length ?? 0})
 }
