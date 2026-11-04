@@ -28,8 +28,12 @@ export const prepareBooth = (): void => {
     document.head.append(Object.assign(document.createElement("style"), {textContent: `
         .ground > [class^="Header"], .ground > footer, .ground > .room-status,
         [class^="PanelPlaceholder"] > header, [class^="TracksFooter"], .create-buttons {display: none !important}
-        [class^="TimelineHeader"] > * {visibility: hidden}
-        body:not(.booth-joined) > * {visibility: hidden}`}))
+        body:not(.booth-joined) > * {visibility: hidden}
+        [class^="loop-area-editor"], [class^="TimelineHeader"] {visibility: hidden}
+        [class^="Scroller"], [class^="time-axis"] > .end-marker, [class^="AudioUnitChannelControls"],
+        [class^="TrackHeader"] > button, [class^="TrackHeader"] > svg, .track-resizer {display: none !important}
+        [class^="time-axis"] > .cursor {background-color: oklch(0.71 0.19 350) !important; opacity: 1 !important;
+            width: 2px !important; box-shadow: 0 0 12px oklch(0.71 0.19 350 / 0.6) !important}`}))
 }
 
 export const joinBooth = (service: StudioService): void => {join(service).then(joined.resolve, joined.reject)}
