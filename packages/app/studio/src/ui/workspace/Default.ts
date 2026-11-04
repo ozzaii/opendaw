@@ -66,6 +66,21 @@ export const DefaultWorkspace = Object.freeze({
             constrains: {type: "flex", minSize: 0, flex: 1}
         })
     },
+    // BRAVOH's booth: the timeline alone, filmed for the artist's phone (service/BravohBooth.ts)
+    "booth": {
+        name: "Booth",
+        icon: IconSymbol.Timeline,
+        hidden: true,
+        content: PanelState.create({
+            type: "panel",
+            name: "Timeline",
+            icon: IconSymbol.Timeline,
+            panelType: PanelType.Timeline,
+            notPopoutable: true,
+            notMinimizable: true,
+            constrains: {type: "flex", minSize: 0, flex: 1}
+        })
+    },
     "default": {
         name: "Default",
         icon: IconSymbol.Timeline,

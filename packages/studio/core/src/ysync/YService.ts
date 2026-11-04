@@ -18,12 +18,15 @@ export namespace YService {
 
     export type RoomResult = { project: Project, provider: WebsocketProvider }
 
+    // `server` points the room at a self-hosted y-websocket (url and query params, e.g. a token); default unchanged.
     export const getOrCreateRoom = async (optProject: Option<Project>,
                                           env: ProjectEnv,
-                                          roomName: string): Promise<RoomResult> => {
+                                          roomName: string,
+                                          server?: { url: string, params?: Record<string, string> }): Promise<RoomResult> => {
         if (roomName === "signaling") {return panic("Invalid room name: signaling")}
         const doc = new Y.Doc()
-        const provider: WebsocketProvider = new WebsocketProvider(serverUrl, roomName, doc)
+        const provider: WebsocketProvider = new WebsocketProvider(server?.url ?? serverUrl, roomName, doc,
+            server?.params === undefined ? undefined : {params: server.params})
         console.debug("clientID:", doc.clientID)
         console.debug("Provider url:", provider.url)
         if (!provider.synced) {

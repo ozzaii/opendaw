@@ -23,11 +23,14 @@ const songs = new Map()
 // the room server: loopback only, the conductor and the booth page are its only clients
 const rooms = await startRooms(Number(process.env.ENGINE_ROOM_PORT ?? 0))
 const STATIC = process.env.ENGINE_STATIC ?? fileURLToPath(new URL(".", import.meta.url))
-const TYPES = {".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".wasm": "application/wasm", ".css": "text/css", ".json": "application/json"}
-// The booth page and the engine's wasm, cross-origin isolated (the engine needs SharedArrayBuffer). No token: no data.
+const TYPES = {".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".wasm": "application/wasm", ".css": "text/css", ".json": "application/json",
+  ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".woff2": "font/woff2", ".woff": "font/woff", ".ttf": "font/ttf", ".sf2": "application/octet-stream"}
+// The booth page (the studio app at the root, it asks for its files from "/"; the slim page at /booth/) and the engine's wasm,
+// cross-origin isolated (the engine needs SharedArrayBuffer). No token: no data.
 const serveStatic = async (path, response) => {
-  const file = normalize(join(STATIC, path))
-  if (!file.startsWith(normalize(STATIC))) return send(response, 404, {why: "no such file"})
+  const root = path.startsWith("/booth/") || path.startsWith("/wasm/") ? STATIC : join(STATIC, "studio")
+  const file = normalize(join(root, path))
+  if (!file.startsWith(normalize(root))) return send(response, 404, {why: "no such file"})
   const bytes = await readFile(file.endsWith("/") ? join(file, "index.html") : file).catch(() => null)
   if (!bytes) return send(response, 404, {why: "no such file"})
   response.writeHead(200, {"content-type": TYPES[extname(file) || ".html"] ?? "application/octet-stream", "cross-origin-opener-policy": "same-origin", "cross-origin-embedder-policy": "require-corp", "cross-origin-resource-policy": "same-origin"})
@@ -83,7 +86,7 @@ const body = request => new Promise((resolve, reject) => {
 const send = (response, status, value) => {response.writeHead(status, {"content-type": "application/json"}); response.end(JSON.stringify(value))}
 export const server = createServer(async (request, response) => {
   const path = new URL(request.url, "http://engine").pathname
-  if (request.method === "GET" && (path.startsWith("/booth/") || path.startsWith("/wasm/"))) return serveStatic(path, response)
+  if (request.method === "GET" && !path.startsWith("/v1/")) return serveStatic(path, response)
   if (request.headers.authorization !== `Bearer ${TOKEN}`) return send(response, 401, {why: "unauthorized"})
   const [, version, songs, key, method] = new URL(request.url, "http://engine").pathname.split("/")
   if (version !== "v1" || songs !== "songs" || !KEY.test(key ?? "")) return send(response, 404, {why: "no such route"})

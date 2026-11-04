@@ -8,7 +8,9 @@ import {boot} from "@/boot"
 import {initializeColors} from "@opendaw/studio-enums"
 import {DisplayPaint} from "@/ui/devices/DisplayPaint"
 import {Browser, Html} from "@opendaw/lib-dom"
+import {isBooth, prepareBooth} from "@/service/BravohBooth"
 
+if (isBooth()) {prepareBooth()}
 initializeColors(document.documentElement)
 DisplayPaint.initialize(document.documentElement)
 if (Browser.isMobile()) {
