@@ -50,8 +50,43 @@ const songOf = async key => {
 const samplesDir = key => join(DATA, "samples", key)
 const uuidText = bytes => UUID.toString(bytes)
 const sampleIndex = async key => JSON.parse(await readFile(join(samplesDir(key), "index.json"), "utf8").catch(() => "[]"))
+// THE STUDIO'S OWN LIBRARY (TR-808, 909, LinnDrum, loops, impulse responses): openDAW's public sample index, the one
+// its studio app reads (packages/app/studio/src/opendaw-api/OpenSampleAPI.ts, its published credentials). Listed beside
+// the song's own files and fetched once per file into ENGINE_DATA/library, so a program and its render play them like
+// any sample. Without it every "from the library" sound failed and make searched the web for a kick (11-04).
+const LIBRARY = "https://assets.opendaw.studio/samples"
+const LIBRARY_AUTH = {headers: {authorization: `Basic ${Buffer.from("openDAW:prototype").toString("base64")}`}}
+const libraryDir = join(DATA, "library")
+let library
+const libraryIndex = () => library ??= fetch(`${LIBRARY}/index.json`, LIBRARY_AUTH)
+  .then(response => response.ok ? response.json() : Promise.reject(new Error(`the library index answered ${response.status}`)))
+  .then(index => {
+    const all = []
+    const walk = folder => {
+      for (const one of folder.samples ?? []) all.push({uuid: one.uuid, name: one.name, duration: one.duration, bpm: one.bpm ?? 0, sample_rate: one.sample_rate})
+      for (const inner of folder.folders ?? []) walk(inner)
+    }
+    for (const folder of index.folders ?? []) walk(folder)
+    return all
+  })
+  .catch(error => {library = undefined; throw error})
+const libraryFile = async uuid => {
+  if (!(await libraryIndex()).some(one => one.uuid === uuid)) return null
+  const kept = join(libraryDir, `${uuid}.wav`)
+  const cached = await readFile(kept).catch(() => null)
+  if (cached) return cached
+  const response = await fetch(`${LIBRARY}/${uuid}`, LIBRARY_AUTH)
+  if (!response.ok) throw new Error(`the library's ${uuid} answered ${response.status}`)
+  const bytes = Buffer.from(await response.arrayBuffer())
+  await mkdir(libraryDir, {recursive: true})
+  await writeFile(kept, bytes)
+  return bytes
+}
+const sampleBytes = async (key, uuid) =>
+  (await readFile(join(samplesDir(key), `${uuid}.wav`)).catch(() => null)) ?? libraryFile(uuid)
 const loadSample = key => async uuid => {
-  const bytes = await readFile(join(samplesDir(key), `${uuidText(uuid)}.wav`))
+  const bytes = await sampleBytes(key, uuidText(uuid))
+  if (!bytes) throw new Error(`no sample ${uuidText(uuid)}`)
   return WavFile.decodeFloats(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength))
 }
 const methods = {
@@ -65,7 +100,7 @@ const methods = {
   },
   samples: async (_song, {add}, _turn, key) => {
     const index = await sampleIndex(key)
-    if (!add) return index
+    if (!add) return [...index, ...await libraryIndex().catch(() => [])]
     const uuid = randomUUID()
     const frames = add.frames.length
     const length = add.frames[0]?.length ?? 0
@@ -107,7 +142,7 @@ export const server = createServer(async (request, response) => {
     if (request.method === "GET" && method === "sample") {
       const uuid = new URL(request.url, "http://engine").searchParams.get("uuid") ?? ""
       if (!/^[0-9a-f-]{36}$/.test(uuid)) return send(response, 404, {why: "no such sample"})
-      const bytes = await readFile(join(samplesDir(key), `${uuid}.wav`)).catch(() => null)
+      const bytes = await sampleBytes(key, uuid).catch(() => null)
       if (!bytes) return send(response, 404, {why: "no such sample"})
       response.writeHead(200, {"content-type": "audio/wav"}); return response.end(bytes)
     }
