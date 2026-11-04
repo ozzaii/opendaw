@@ -6,7 +6,7 @@ import {decode, encode} from "./wire.mjs"
 const hand = async (name, input) => {
   const call = globalThis[`external_${name}`]
   if (typeof call !== "function") throw new Error("The booth is not open on this turn: the studio's song cannot be reached from this program.")
-  const answer = await call({say: "", wire: encode(input)})
+  const answer = await call({say: "the booth", wire: encode(input)})
   if (answer?.failed || answer?.refused) throw new Error(String(answer.why ?? answer.refused))
   return decode(answer.wire)
 }
