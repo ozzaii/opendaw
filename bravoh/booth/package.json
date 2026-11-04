@@ -1,0 +1,21 @@
+{
+  "name": "@bravoh/opendaw-booth",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "scripts": {"build": "vite build"},
+  "dependencies": {
+    "@opendaw/lib-box": "0.0.103",
+    "@opendaw/lib-dom": "0.0.96",
+    "@opendaw/lib-dsp": "0.0.100",
+    "@opendaw/lib-std": "0.0.89",
+    "@opendaw/studio-adapters": "0.3.13",
+    "@opendaw/studio-boxes": "0.0.119",
+    "@opendaw/studio-core": "0.2.15",
+    "@opendaw/studio-core-wasm": "0.0.26",
+    "y-websocket": "1.5.4",
+    "yjs": "13.6.33",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {"vite": "7.3.7", "typescript": "5.9.3"}
+}

@@ -23,11 +23,26 @@ export class Song {
     return song
   }
   #graph = null
+  #room = null
+  #generation = 0
   #editing = null
   #steps = []
   name = ""
   constructor(dir, key) {this.dir = dir; this.path = join(dir, `${key}.od`)}
-  #attach(graph, name) {this.#graph = graph; this.#editing = graph ? new BoxEditing(graph) : null; this.#steps = []; this.name = name}
+  #attach(graph, name) {
+    this.#graph = graph; this.#editing = graph ? new BoxEditing(graph) : null; this.#steps = []; this.name = name
+    this.#room?.close(); this.#room = null; this.#generation++
+    // the booth page writes too (plugin state, migration repairs): those land in this graph and are kept
+    graph?.subscribeToAllUpdates({onUpdate: () => this.#later()})
+  }
+  #timer = null
+  #later() {clearTimeout(this.#timer); this.#timer = setTimeout(() => void this.#save(), 500)}
+  // The room the booth page joins, made on first ask for this graph.
+  async room(open) {
+    if (!this.#graph) return null
+    this.#room ??= await open(`${this.path.split("/").pop().replace(/\.od$/, "")}-${this.#generation}`, this.#graph)
+    return this.#room.name
+  }
   get graph() {return this.#graph}
   bytes() {return this.#graph ? ProjectSkeleton.encode(this.#graph) : null}
   // A whole new song (openDAW.newProject().openInStudio()): the one before is kept beside it and comes back on undo.
