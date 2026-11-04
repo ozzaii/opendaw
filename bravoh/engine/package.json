@@ -1,0 +1,23 @@
+{
+  "name": "@bravoh/opendaw-engine",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "scripts": {
+    "build": "esbuild server.mjs --bundle --platform=node --format=esm --outfile=dist/server.mjs --define:process.env.ENGINE_LISTEN='\"1\"' && esbuild proof.mjs --bundle --platform=node --format=esm --outfile=dist/proof.mjs && cp -R node_modules/@opendaw/studio-core-wasm/dist/wasm dist/wasm",
+    "proof": "OPENDAW_WASM_DIST=dist ENGINE_TOKEN=proof-token-proof-token-proof-token node dist/proof.mjs"
+  },
+  "dependencies": {
+    "@opendaw/lib-box": "0.0.103",
+    "@opendaw/lib-dsp": "0.0.100",
+    "@opendaw/lib-std": "0.0.89",
+    "@opendaw/studio-adapters": "0.3.13",
+    "@opendaw/studio-boxes": "0.0.119",
+    "@opendaw/studio-core-wasm": "0.0.26",
+    "@opendaw/studio-scripting": "0.0.95",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12"
+  }
+}
