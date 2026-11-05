@@ -1,8 +1,8 @@
-// One song: its graph, its undo (BoxEditing, one step per applied program, each marked with the turn that made it),
-// and its bytes on disk after every change.
-import {mkdir, readFile, rename, writeFile} from "node:fs/promises"
+// One song: its graph, its undo (a snapshot of the song before the first edit of each turn, on disk), and its bytes on
+// disk after every change. The engine page edits it through its room; the store only keeps.
+import {mkdir, readFile, rename, rm, writeFile} from "node:fs/promises"
 import {join} from "node:path"
-import {BoxGraph, BoxEditing, applyUpdateTasks} from "@opendaw/lib-box"
+import {BoxGraph, applyUpdateTasks} from "@opendaw/lib-box"
 import {BoxIO} from "@opendaw/studio-boxes"
 import {ProjectSkeleton} from "@opendaw/studio-adapters"
 import {Arrays, Option} from "@opendaw/lib-std"
@@ -12,19 +12,6 @@ const graphOf = bytes => {
   return graph
 }
 const asBuffer = bytes => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
-// {sampleRate, frames: [left, right]} as a 16-bit stereo WAV: a quarter of the float file, for a phone's data.
-export const pcm16 = ({sampleRate, frames}) => {
-  const length = frames[0].length, channels = frames.length, data = length * channels * 2
-  const view = new DataView(new ArrayBuffer(44 + data))
-  const text = (at, word) => [...word].forEach((char, i) => view.setUint8(at + i, char.charCodeAt(0)))
-  text(0, "RIFF"); view.setUint32(4, 36 + data, true); text(8, "WAVE"); text(12, "fmt ")
-  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, channels, true)
-  view.setUint32(24, sampleRate, true); view.setUint32(28, sampleRate * channels * 2, true)
-  view.setUint16(32, channels * 2, true); view.setUint16(34, 16, true); text(36, "data"); view.setUint32(40, data, true)
-  for (let i = 0, at = 44; i < length; i++)
-    for (let c = 0; c < channels; c++, at += 2) view.setInt16(at, Math.round(Math.max(-1, Math.min(1, frames[c][i])) * 32767), true)
-  return new Uint8Array(view.buffer)
-}
 export class Song {
   static async open(dir, key) {
     const song = new Song(dir, key)
@@ -33,27 +20,32 @@ export class Song {
       const {name} = JSON.parse(await readFile(`${song.path}.json`, "utf8").catch(() => '{"name":""}'))
       song.#attach(graphOf(asBuffer(bytes)), name ?? "")
     }
+    song.#history = JSON.parse(await readFile(join(song.#snapshots, "index.json"), "utf8").catch(() => "[]"))
     return song
   }
   #graph = null
   #room = null
-  #generation = 0
-  #editing = null
-  #steps = []
+  // unique across restarts: a page still in a room of the engine before must never meet a new room of the same name
+  #generation = Date.now()
+  #history = [] // [{turn, name, file}] oldest first; file null = there was no song before that turn
   name = ""
+  // Every change of the graph, from a program's room or the booth page: what a bounce is kept for.
+  version = 0
+  bounced = null // {version, file} the engine page rendered (server.mjs POST bounce)
   constructor(dir, key) {this.dir = dir; this.path = join(dir, `${key}.od`)}
+  get #snapshots() {return `${this.path}.history`}
   #attach(graph, name) {
-    this.#graph = graph; this.#editing = graph ? new BoxEditing(graph) : null; this.#steps = []; this.name = name
+    this.#graph = graph; this.name = name; this.version++
     this.#room?.close(); this.#room = null; this.#generation++
-    // the booth page writes too (plugin state, migration repairs): those land in this graph and are kept
-    graph?.subscribeToAllUpdates({onUpdate: () => this.#later()})
+    // the pages write here through the room (a program's edits, plugin state, migration repairs): all of it is kept
+    graph?.subscribeToAllUpdates({onUpdate: () => {this.version++; this.#later()}})
   }
   #timer = null
   #later() {
     clearTimeout(this.#timer)
     this.#timer = setTimeout(() => this.#save().catch(error => console.warn(`[engine] ${this.path} not saved:`, error)), 500)
   }
-  // The room the booth page joins, made on first ask for this graph.
+  // The room the pages join, made on first ask for this graph.
   async room(open) {
     if (!this.#graph) return null
     this.#room ??= await open(`${this.path.split("/").pop().replace(/\.od$/, "")}-${this.#generation}`, this.#graph)
@@ -69,60 +61,50 @@ export class Song {
     await this.#save()
     return {started: true}
   }
-  // A whole new song (openDAW.newProject().openInStudio()): the one before is kept beside it and comes back on undo.
+  // UNDO BY TURN: the song as it was before the first edit of a turn, kept once per turn (the engine page asks before
+  // its first edit of a turn; a new song asks itself). On disk, so it outlives a restart.
+  async mark(turn) {
+    if (this.#history.at(-1)?.turn === turn) return {marked: false}
+    const bytes = this.bytes()
+    const file = bytes ? `${Date.now()}-${this.#history.length}.od` : null
+    await mkdir(this.#snapshots, {recursive: true})
+    if (file) await writeFile(join(this.#snapshots, file), new Uint8Array(bytes))
+    this.#history.push({turn, name: this.name, file})
+    await writeFile(join(this.#snapshots, "index.json"), JSON.stringify(this.#history))
+    return {marked: true}
+  }
+  // A whole new song (openDAW.newProject().openInStudio()): the one before comes back on undo.
   async replace(buffer, name, turn) {
-    const before = this.bytes()
-    if (before) await writeFile(join(this.dir, `${this.path.split("/").pop()}.${Date.now()}.before`), new Uint8Array(before))
+    await this.mark(turn)
     const graph = new BoxGraph(Option.wrap(BoxIO.create))
     graph.fromArrayBuffer(buffer, false)
     this.#attach(graph, name ?? "")
-    this.#steps.push({turn, before, name: this.name})
     await this.#save()
     return {applied: "new"}
   }
-  // ScriptHostProtocol.applyUpdates: refused when the song moved since the program read it.
+  // ScriptHostProtocol.applyUpdates on the store's own graph (the room carries it to the pages); the engine page applies
+  // a program's edits itself, so this is for a caller without a page.
   async apply(tasks, checksum, turn) {
     if (!this.#graph) throw new Error("There is no song in the booth yet: start one with openDAW.newProject().")
     if (!Arrays.equals(this.#graph.checksum(), checksum)) throw new Error("The song changed since this program read it: read it again and redo the change.")
-    this.#editing.modify(() => applyUpdateTasks(this.#graph, tasks))
-    this.#steps.push({turn})
+    await this.mark(turn)
+    this.#graph.beginTransaction()
+    applyUpdateTasks(this.#graph, tasks)
+    this.#graph.endTransaction()
     await this.#save()
     return {applied: tasks.length}
   }
-  // The edits of the last `turns` turns that wrote, newest first.
+  // The last `turns` turns that wrote, taken back: the song as it was before the oldest of them, in a new room.
   async undo(turns = 1) {
-    const taken = new Set()
-    let undone = 0
-    while (this.#steps.length > 0) {
-      const step = this.#steps.at(-1)
-      if (!taken.has(step.turn) && taken.size >= turns) break
-      taken.add(step.turn)
-      this.#steps.pop()
-      if ("before" in step) {
-        const restored = step.before ? graphOf(step.before) : null
-        const steps = this.#steps
-        this.#attach(restored, step.name)
-        this.#steps = restored ? [] : steps
-        undone++
-        break
-      }
-      this.#editing.undo()
-      undone++
-    }
+    const taken = this.#history.splice(Math.max(0, this.#history.length - Math.max(1, turns)))
+    if (taken.length === 0) return {undone: 0, turns: 0}
+    const back = taken[0]
+    const bytes = back.file ? await readFile(join(this.#snapshots, back.file)) : null
+    this.#attach(bytes ? graphOf(asBuffer(bytes)) : null, back.name)
     await this.#save()
-    return {undone, turns: taken.size}
-  }
-  // The song as one file the phone plays, rendered and encoded once per change of the song: `encode` turns the
-  // 16-bit WAV into what the platform plays natively ({bytes, type}), the WAV itself when it cannot.
-  version = 0
-  #bounce = null
-  async bounce(render, encode = async wav => ({bytes: wav, type: "audio/wav"})) {
-    if (!this.#graph) return null
-    if (this.#bounce?.version !== this.version) {
-      const version = this.version
-      this.#bounce = {version, file: await encode(pcm16(await render(this.bytes())))}
-    }
-    return this.#bounce.file
+    await writeFile(join(this.#snapshots, "index.json"), JSON.stringify(this.#history))
+    for (const {file} of taken) if (file) await rm(join(this.#snapshots, file), {force: true})
+    return {undone: taken.length, turns: taken.length}
   }
   // ONE SAVE AT A TIME PER SONG, each on its own tmp file. The booth page's writes save on a timer beside a
   // program's apply: two saves on one ".tmp" raced, the second rename found it gone (ENOENT, staging 11-04),
@@ -130,11 +112,11 @@ export class Song {
   #saving = Promise.resolve()
   #writes = 0
   #save() {
-    this.version++
     const write = async () => {
       await mkdir(this.dir, {recursive: true})
       const bytes = this.bytes()
-      if (!bytes) return
+      // undone back to before the first song: no song on disk either, or a restart would bring it back
+      if (!bytes) return Promise.all([rm(this.path, {force: true}), rm(`${this.path}.json`, {force: true})])
       const tmp = `${this.path}.${process.pid}.${++this.#writes}.tmp`
       await writeFile(tmp, new Uint8Array(bytes))
       await rename(tmp, this.path)

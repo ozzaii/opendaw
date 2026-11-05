@@ -14,7 +14,7 @@ import {network, Promises} from "@opendaw/lib-runtime"
 import {Sample, SampleMetaData} from "@opendaw/studio-adapters"
 import {SampleAPI} from "@opendaw/studio-core"
 import {AccessKey} from "./AccessKey"
-import {base64Credentials, OpenDAWHeaders} from "./OpenDAWHeaders"
+import {AssetsRoot, ViaBravohStore, base64Credentials, OpenDAWHeaders} from "./OpenDAWHeaders"
 import {SampleIndex} from "./SampleIndex"
 import {fetchIndex} from "./IndexFetch"
 import {z} from "zod"
@@ -25,7 +25,7 @@ const SampleError = z.object({error: z.string()})
 // Standard openDAW samples (considered to be non-removable)
 export class OpenSampleAPI implements SampleAPI {
     static readonly ApiRoot = "https://api.opendaw.studio/samples"
-    static readonly FileRoot = "https://assets.opendaw.studio/samples"
+    static readonly FileRoot = `${AssetsRoot}/samples`
     static readonly IndexFile = `${OpenSampleAPI.FileRoot}/index.json`
 
     @Lazy
@@ -44,6 +44,8 @@ export class OpenSampleAPI implements SampleAPI {
         const uuidAsString = UUID.toString(uuid)
         const known = (await this.all()).find(sample => sample.uuid === uuidAsString)
         if (isDefined(known)) {return known}
+        // openDAW's API answers no other origin: a song's own sample is the store's (its peer), asked at once
+        if (ViaBravohStore) {return panic(`Sample not in the library: ${uuidAsString}`)}
         const url = `${OpenSampleAPI.ApiRoot}/get.php?uuid=${uuidAsString}`
         const response = await Promises.retry(() => network.limitFetch(url, OpenDAWHeaders))
         if (!response.ok) {

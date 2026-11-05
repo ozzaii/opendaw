@@ -37,11 +37,9 @@ export const prepareBooth = (): void => {
             width: 2px !important; box-shadow: 0 0 12px oklch(0.71 0.19 350 / 0.6) !important}`}))
 }
 
-export const joinBooth = (service: StudioService): void => {join(service).then(joined.resolve, joined.reject)}
-const join = async (service: StudioService): Promise<unknown> => {
-    const key = asked.get("booth") ?? "", token = asked.get("token") ?? ""
-    const engine = (path: string) => fetch(`/v1/songs/${key}/${path}`, {headers: {authorization: `Bearer ${token}`}})
-    // the song's own samples are the engine's: asked after the cloud, where a stock sample is found
+// The song's own samples are the engine's: asked after the cloud, where a stock sample is found. The booth page and
+// the engine page (BravohEngine.ts) both read them this way.
+export const attachSongSamples = (service: StudioService, engine: (path: string) => Promise<Response>): void =>
     service.chainedSampleProvider.attachPeer({
         fetch: async (uuid: UUID.Bytes, _progress: Progress.Handler) => {
             const response = await engine(`sample?uuid=${UUID.toString(uuid)}`)
@@ -51,6 +49,12 @@ const join = async (service: StudioService): Promise<unknown> => {
                 sample_rate: audio.sampleRate, origin: "import"}] as any
         }
     })
+
+export const joinBooth = (service: StudioService): void => {join(service).then(joined.resolve, joined.reject)}
+const join = async (service: StudioService): Promise<unknown> => {
+    const key = asked.get("booth") ?? "", token = asked.get("token") ?? ""
+    const engine = (path: string) => fetch(`/v1/songs/${key}/${path}`, {headers: {authorization: `Bearer ${token}`}})
+    attachSongSamples(service, engine)
     // a booth opened before the first program wrote a song waits for it (404 is "no song yet")
     let answer = await engine("room")
     for (let waited = 0; answer.status === 404 && waited < 600; waited++) {

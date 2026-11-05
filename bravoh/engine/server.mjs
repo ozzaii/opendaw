@@ -1,5 +1,7 @@
-// opendaw-engine: holds each booth song and answers the four ScriptHostProtocol hands of BRAVOH's programs
-// (bravoh/runtime/preamble.mjs), plus undo and the song as the phone draws it. Loopback, one bearer token.
+// opendaw-engine, the STORE: holds each booth song, its undo by turn, its samples, the song as the phone draws it, and
+// what the engine page (the studio app itself, packages/app/studio/src/service/BravohEngine.ts) renders: a program's
+// mixdowns and the bounce the phone plays. The page executes a program's studio hands; the store never renders.
+// Loopback, one bearer token.
 import {createServer} from "node:http"
 import {mkdir, readFile, writeFile, readdir} from "node:fs/promises"
 import {randomUUID} from "node:crypto"
@@ -8,7 +10,6 @@ import {WavFile} from "@opendaw/lib-dsp"
 import {UUID} from "@opendaw/lib-std"
 import {decode, encode} from "../runtime/wire.mjs"
 import {Song} from "./song.mjs"
-import {render} from "./render.mjs"
 import {factsOf} from "./facts.mjs"
 import {openRoom, startRooms} from "./rooms.mjs"
 import {extname, normalize} from "node:path"
@@ -73,9 +74,25 @@ const sampleIndex = async key => JSON.parse(await readFile(join(samplesDir(key),
 // its studio app reads (packages/app/studio/src/opendaw-api/OpenSampleAPI.ts, its published credentials). Listed beside
 // the song's own files and fetched once per file into ENGINE_DATA/library, so a program and its render play them like
 // any sample. Without it every "from the library" sound failed and make searched the web for a kick (11-04).
-const LIBRARY = "https://assets.opendaw.studio/samples"
+const ASSETS = "https://assets.opendaw.studio"
+const LIBRARY = `${ASSETS}/samples`
 const LIBRARY_AUTH = {headers: {authorization: `Basic ${Buffer.from("openDAW:prototype").toString("base64")}`}}
-const libraryDir = join(DATA, "library")
+// OPENDAW'S ASSETS FOR THE PAGES (samples, soundfonts, presets, WCLAPs): their host answers cross-origin only to
+// opendaw.studio, so the booth and engine pages read them here (packages/app/studio/src/opendaw-api AssetsRoot).
+// A file is fetched once into ENGINE_DATA/assets; an index is fetched fresh, it changes.
+const ASSET = /^(samples|soundfonts|presets|wclaps)\/[A-Za-z0-9._-]+$/
+const assetsDir = join(DATA, "assets")
+const asset = async path => {
+  const kept = join(assetsDir, path)
+  const fresh = path.endsWith(".json")
+  const cached = fresh ? null : await readFile(kept).catch(() => null)
+  if (cached) return cached
+  const response = await fetch(`${ASSETS}/${path}`, LIBRARY_AUTH)
+  if (!response.ok) return null
+  const bytes = Buffer.from(await response.arrayBuffer())
+  if (!fresh) await mkdir(join(kept, ".."), {recursive: true}).then(() => writeFile(kept, bytes))
+  return bytes
+}
 let library
 const libraryIndex = () => library ??= fetch(`${LIBRARY}/index.json`, LIBRARY_AUTH)
   .then(response => response.ok ? response.json() : Promise.reject(new Error(`the library index answered ${response.status}`)))
@@ -91,32 +108,16 @@ const libraryIndex = () => library ??= fetch(`${LIBRARY}/index.json`, LIBRARY_AU
   .catch(error => {library = undefined; throw error})
 const libraryFile = async uuid => {
   if (!(await libraryIndex()).some(one => one.uuid === uuid)) return null
-  const kept = join(libraryDir, `${uuid}.wav`)
-  const cached = await readFile(kept).catch(() => null)
-  if (cached) return cached
-  const response = await fetch(`${LIBRARY}/${uuid}`, LIBRARY_AUTH)
-  if (!response.ok) throw new Error(`the library's ${uuid} answered ${response.status}`)
-  const bytes = Buffer.from(await response.arrayBuffer())
-  await mkdir(libraryDir, {recursive: true})
-  await writeFile(kept, bytes)
+  const bytes = await asset(`samples/${uuid}`)
+  if (!bytes) throw new Error(`the library's ${uuid} did not load`)
   return bytes
 }
 const sampleBytes = async (key, uuid) =>
   (await readFile(join(samplesDir(key), `${uuid}.wav`)).catch(() => null)) ?? libraryFile(uuid)
-const loadSample = key => async uuid => {
-  const bytes = await sampleBytes(key, uuidText(uuid))
-  if (!bytes) throw new Error(`no sample ${uuidText(uuid)}`)
-  return WavFile.decodeFloats(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength))
-}
 const methods = {
   open: async (song) => ({project: song.bytes(), name: song.name}),
   apply: async (song, {project, name, tasks, checksum}, turn) =>
     project ? song.replace(project, name, turn) : song.apply(tasks, checksum, turn),
-  mixdown: async (song, {project, sampleRate}, _turn, key) => {
-    const out = await render(project, {sampleRate, samples: loadSample(key)})
-    if (out.failed.length > 0) throw new Error(`Some sounds of the song did not load, so the render would be missing them: ${out.failed.join("; ")}`)
-    return {sampleRate: out.sampleRate, frames: out.frames}
-  },
   samples: async (_song, {add}, _turn, key) => {
     const index = await sampleIndex(key)
     if (!add) return [...index, ...await libraryIndex().catch(() => [])]
@@ -134,12 +135,23 @@ const body = request => new Promise((resolve, reject) => {
   const parts = []
   let size = 0
   request.on("data", part => {size += part.length; if (size > MAX_BODY) {reject(new Error("too large")); request.destroy()} else parts.push(part)})
-  request.on("end", () => resolve(Buffer.concat(parts).toString("utf8")))
+  request.on("end", () => resolve(Buffer.concat(parts)))
   request.on("error", reject)
 })
+// A PROGRAM'S MIXDOWN (32-bit float WAV), from the engine page to the hand that asked: read once, gone after 10 minutes.
+const renders = join(DATA, "renders")
+await rm(renders, {recursive: true, force: true})
+const renderFile = (key, id) => join(renders, `${key}.${id}.wav`)
 const send = (response, status, value) => {response.writeHead(status, {"content-type": "application/json"}); response.end(JSON.stringify(value))}
 export const server = createServer(async (request, response) => {
   const path = new URL(request.url, "http://engine").pathname
+  if (request.method === "GET" && path.startsWith("/opendaw-assets/")) {
+    const file = ASSET.test(path.slice(16)) ? await asset(path.slice(16)).catch(() => null) : null
+    if (!file) return send(response, 404, {why: "no such asset"})
+    response.writeHead(200, {"content-type": path.endsWith(".json") ? "application/json" : "application/octet-stream", "content-length": file.byteLength,
+      "cross-origin-resource-policy": "same-origin"})
+    return response.end(file)
+  }
   if (request.method === "GET" && !path.startsWith("/v1/")) return serveStatic(path, response)
   if (request.headers.authorization !== `Bearer ${TOKEN}`) return send(response, 401, {why: "unauthorized"})
   const [, version, songs, key, method] = new URL(request.url, "http://engine").pathname.split("/")
@@ -150,13 +162,26 @@ export const server = createServer(async (request, response) => {
       return song.graph ? send(response, 200, await factsOf(song.graph, song.name)) : send(response, 404, {why: "no song"})
     }
     if (request.method === "GET" && method === "room") {
-      const room = await serial(key, async () => (await songOf(key)).room((name, graph) => openRoom(rooms.url, name, graph)))
-      return room ? send(response, 200, {room, ws: "/rooms"}) : send(response, 404, {why: "no song"})
+      const song = await songOf(key)
+      const room = await serial(key, async () => song.room((name, graph) => openRoom(rooms.url, name, graph)))
+      return room ? send(response, 200, {room, ws: "/rooms", name: song.name}) : send(response, 404, {why: "no song"})
     }
-    if (request.method === "GET" && method === "bounce") {
-      const file = await serial(key, async () => (await songOf(key)).bounce(bytes => render(bytes, {samples: loadSample(key)}), toM4a)).catch(() => null)
-      if (!file) return send(response, 404, {why: "nothing to play yet"})
+    if (request.method === "GET" && method === "version") return send(response, 200, {version: (await songOf(key)).version})
+    // THE SONG AS THE PHONE PLAYS IT: the bounce the engine page rendered for this version of the song, or 409 and the
+    // version to render (the API asks the engine host to bounce, then comes back).
+    if (request.method === "GET" && method === "audio") {
+      const song = await songOf(key)
+      if (!song.graph) return send(response, 404, {why: "no song"})
+      if (song.bounced?.version !== song.version) return send(response, 409, {why: "not rendered", version: song.version})
+      const {file} = song.bounced
       response.writeHead(200, {"content-type": file.type, "content-length": file.bytes.byteLength}); return response.end(file.bytes)
+    }
+    if (request.method === "GET" && method === "renders") {
+      const id = path.split("/")[5] ?? ""
+      const bytes = KEY.test(id) ? await readFile(renderFile(key, id)).catch(() => null) : null
+      if (!bytes) return send(response, 404, {why: "no such render"})
+      await rm(renderFile(key, id), {force: true})
+      response.writeHead(200, {"content-type": "audio/wav", "content-length": bytes.byteLength}); return response.end(bytes)
     }
     if (request.method === "GET" && method === "sample") {
       const uuid = new URL(request.url, "http://engine").searchParams.get("uuid") ?? ""
@@ -166,8 +191,26 @@ export const server = createServer(async (request, response) => {
       response.writeHead(200, {"content-type": "audio/wav"}); return response.end(bytes)
     }
     if (request.method !== "POST") return send(response, 405, {why: "POST"})
-    const input = JSON.parse((await body(request)) || "{}")
+    if (method === "renders") {
+      const id = path.split("/")[5] ?? ""
+      if (!KEY.test(id)) return send(response, 404, {why: "no such render"})
+      await mkdir(renders, {recursive: true})
+      await writeFile(renderFile(key, id), await body(request))
+      setTimeout(() => rm(renderFile(key, id), {force: true}).catch(() => {}), 10 * 60_000).unref()
+      return send(response, 200, {render: id})
+    }
+    if (method === "bounce") {
+      const version = Number(new URL(request.url, "http://engine").searchParams.get("version"))
+      if (!Number.isInteger(version)) return send(response, 400, {why: "version"})
+      const file = await toM4a(await body(request))
+      const song = await songOf(key)
+      // a newer bounce than the one kept wins; an older one that arrives late does not replace it
+      if (!(song.bounced?.version > version)) song.bounced = {version, file}
+      return send(response, 200, {version})
+    }
+    const input = JSON.parse((await body(request)).toString("utf8") || "{}")
     if (method === "start") return send(response, 200, await serial(key, async () => (await songOf(key)).start(String(input.name ?? "").slice(0, 200))))
+    if (method === "mark") return send(response, 200, await serial(key, async () => (await songOf(key)).mark(String(input.turn ?? ""))))
     if (method === "undo") return send(response, 200, await serial(key, async () => (await songOf(key)).undo(Number(input.turns ?? 1))))
     const run = methods[method]
     if (!run) return send(response, 404, {why: "no such method"})

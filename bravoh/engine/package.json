@@ -5,8 +5,8 @@
   "license": "AGPL-3.0-or-later",
   "scripts": {
     "build": "esbuild server.mjs --bundle --platform=node --format=esm --banner:js=\"import {createRequire as __cr} from 'node:module'; const require = __cr(import.meta.url);\" --outfile=dist/server.mjs --define:process.env.ENGINE_LISTEN='\"1\"' && esbuild proof.mjs --bundle --platform=node --format=esm --banner:js=\"import {createRequire as __cr} from 'node:module'; const require = __cr(import.meta.url);\" --outfile=dist/proof.mjs && esbuild proof-booth.mjs --bundle --platform=node --format=esm --banner:js=\"import {createRequire as __cr} from 'node:module'; const require = __cr(import.meta.url);\" --external:playwright-core --outfile=dist/proof-booth.mjs && rm -rf dist/wasm && cp -R node_modules/@opendaw/studio-core-wasm/dist/wasm dist/wasm",
-    "proof": "OPENDAW_WASM_DIST=dist ENGINE_TOKEN=proof-token-proof-token-proof-token node dist/proof.mjs",
-    "booth": "OPENDAW_WASM_DIST=dist ENGINE_STATIC=dist ENGINE_TOKEN=proof-token-proof-token-proof-token node dist/proof-booth.mjs"
+    "proof": "node dist/proof.mjs",
+    "booth": "ENGINE_STATIC=dist ENGINE_TOKEN=proof-token-proof-token-proof-token node dist/proof-booth.mjs"
   },
   "dependencies": {
     "@opendaw/lib-box": "0.0.103",

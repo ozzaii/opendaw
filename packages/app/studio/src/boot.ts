@@ -1,4 +1,5 @@
 import {isBooth, joinBooth} from "@/service/BravohBooth"
+import {isEngine, startEngine} from "@/service/BravohEngine"
 import "./main.sass"
 
 // Escape hatch for AUTOMATED browser sessions (set `localStorage["opendaw-suppress-unload-guard"]`):
@@ -95,8 +96,9 @@ export const boot = async ({workersUrl, workletsUrl, wasmProcessorUrl, wasmOffli
         processorUrl: wasmProcessorUrl,
         offlineWorkerUrl: wasmOfflineWorkerUrl,
         wasmUrl: `${import.meta.env.BASE_URL}wasm-engine`,
-        // the booth plays songs a program wrote, which never use the mastering device (its wasm is a Rust build of its own)
-        extraDevices: isBooth() ? [] : [{url: MasteringDeviceUrl, boxType: MasteringDeviceBoxType}]
+        // the booth and the engine play songs a program wrote, which never use the mastering device (its wasm is a Rust
+        // build of its own)
+        extraDevices: isBooth() || isEngine() ? [] : [{url: MasteringDeviceUrl, boxType: MasteringDeviceBoxType}]
     })
     if (!await WasmEngine.ensureReady(context)) {
         document.querySelector("#preloader")?.remove()
@@ -178,6 +180,7 @@ export const boot = async ({workersUrl, workletsUrl, wasmProcessorUrl, wasmOffli
     })
     replaceChildren(surface.ground, App(service))
     if (isBooth()) {joinBooth(service)}
+    if (isEngine()) {startEngine(service)}
     Tour.install(service)
     AnimationFrame.start(window)
     installCursors()

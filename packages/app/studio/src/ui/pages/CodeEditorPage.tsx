@@ -10,7 +10,6 @@ import {EditorLoadFailure} from "@/ui/components/EditorLoadFailure"
 import {Colors, IconSymbol} from "@opendaw/studio-enums"
 import {TopLevelReturn} from "./code-editor/TopLevelReturn"
 import {
-    Arrays,
     DefaultObservableValue,
     Errors,
     isDefined,
@@ -29,7 +28,6 @@ import {
     AudioContexts,
     FilePickerAcceptTypes,
     MenuItem,
-    OfflineEngineRenderer,
     Project,
     ScriptMeta,
     ScriptStorage
@@ -38,7 +36,8 @@ import {AudioData, WavFile} from "@opendaw/lib-dsp"
 import scriptWorkerUrl from "@opendaw/studio-scripting/ScriptWorker.js?worker&url"
 import {dynamicImportWithRetry} from "@/ui/components/dynamicImportWithRetry"
 import {ProjectSkeleton, Sample} from "@opendaw/studio-adapters"
-import {applyUpdateTasks, BoxGraph, UpdateTask} from "@opendaw/lib-box"
+import {BoxGraph, UpdateTask} from "@opendaw/lib-box"
+import {ScriptAnswers} from "@/service/ScriptAnswers"
 import {BoxIO} from "@opendaw/studio-boxes"
 import {Dialogs} from "@/ui/components/dialogs"
 import {ScriptDialogs} from "@/script/ScriptDialogs"
@@ -82,11 +81,10 @@ export const CodeEditorPage: PageFactory<StudioService> = ({lifecycle, service}:
             service.optProject.match({
                 none: () => RuntimeNotifier.notify({message: "No project to apply the script to.", icon: "Warning"}),
                 some: project => {
-                    if (!Arrays.equals(project.boxGraph.checksum(), checksum)) {
+                    if (!ScriptAnswers.applyUpdates(project, updates, checksum)) {
                         RuntimeNotifier.notify({message: "The project changed while the script ran. Run it again.", icon: "Warning"})
                         return
                     }
-                    project.editing.modify(() => applyUpdateTasks(project.boxGraph, updates))
                     RouteLocation.get().navigateTo("/create")
                 }
             }),
@@ -114,7 +112,6 @@ export const CodeEditorPage: PageFactory<StudioService> = ({lifecycle, service}:
         },
         listSamples: async (): Promise<ReadonlyArray<Sample>> => service.sampleService.list(),
         renderMixdown: async (buffer: ArrayBufferLike, {sampleRate}: MixdownOptions): Promise<AudioData> => {
-            const project = Project.load(service, buffer as ArrayBuffer)
             const abortController = new AbortController()
             const progress = new DefaultObservableValue(0.0)
             const dialog = RuntimeNotifier.progress({
@@ -123,10 +120,9 @@ export const CodeEditorPage: PageFactory<StudioService> = ({lifecycle, service}:
                 cancel: () => abortController.abort()
             })
             await service.audioContext.suspend()
-            const result = await Promises.tryCatch(OfflineEngineRenderer
-                .start(project, Option.None, progress, abortController.signal, sampleRate))
+            const result = await Promises.tryCatch(ScriptAnswers.renderMixdown(service, buffer, sampleRate,
+                {progress, abortSignal: abortController.signal}))
             dialog.terminate()
-            project.terminate()
             AudioContexts.resume(service.audioContext).then()
             if (result.status === "rejected") {return Promise.reject(result.error)}
             return result.value

@@ -19,10 +19,11 @@ export namespace YService {
     export type RoomResult = { project: Project, provider: WebsocketProvider }
 
     // `server` points the room at a self-hosted y-websocket (url and query params, e.g. a token); default unchanged.
+    // `user: false` joins without a UserInterfaceBox of its own: a participant that edits the song but is no person.
     export const getOrCreateRoom = async (optProject: Option<Project>,
                                           env: ProjectEnv,
                                           roomName: string,
-                                          server?: { url: string, params?: Record<string, string> }): Promise<RoomResult> => {
+                                          server?: { url: string, params?: Record<string, string>, user?: boolean }): Promise<RoomResult> => {
         if (roomName === "signaling") {return panic("Invalid room name: signaling")}
         const doc = new Y.Doc()
         const provider: WebsocketProvider = new WebsocketProvider(server?.url ?? serverUrl, roomName, doc,
@@ -72,12 +73,14 @@ export namespace YService {
             const skeleton: ProjectSkeleton = {boxGraph, mandatoryBoxes}
             await ProjectMigration.migrate(env, skeleton)
             const project = Project.fromSkeleton(env, skeleton, false)
-            boxGraph.beginTransaction()
-            // TODO How takes care to remove the user interface boxes?
-            const userInterfaceBox = UserInterfaceBox.create(boxGraph, UUID.generate(),
-                box => box.root.refer(mandatoryBoxes.rootBox.users))
-            boxGraph.endTransaction()
-            project.follow(userInterfaceBox)
+            if (server?.user !== false) {
+                boxGraph.beginTransaction()
+                // TODO How takes care to remove the user interface boxes?
+                const userInterfaceBox = UserInterfaceBox.create(boxGraph, UUID.generate(),
+                    box => box.root.refer(mandatoryBoxes.rootBox.users))
+                boxGraph.endTransaction()
+                project.follow(userInterfaceBox)
+            }
             project.own(sync)
             project.attachLiveSync(sync)
             return {project, provider}
