@@ -1,6 +1,6 @@
 import {Color} from "@opendaw/lib-std"
 
-export const ColorSchemes = ["classic", "modern", "contrast"] as const
+export const ColorSchemes = ["classic", "modern", "contrast", "jet"] as const
 
 export type ColorScheme = typeof ColorSchemes[number]
 
@@ -11,7 +11,8 @@ type NeutralName = "bright" | "gray" | "dark" | "shadow" | "black" | "background
 
 type Neutral = readonly [saturation: number, lightness: number]
 
-const NeutralHue = 197
+// "jet" is BRAVOH's booth (bravoh/, JET NIGHT): its ladder warmed by the brand's hue, the others the studio's own.
+const NeutralHue: Record<ColorScheme, number> = {classic: 197, modern: 197, contrast: 197, jet: 340}
 
 const Neutrals: Record<ColorScheme, Record<NeutralName, Neutral>> = {
     classic: {
@@ -28,6 +29,11 @@ const Neutrals: Record<ColorScheme, Record<NeutralName, Neutral>> = {
         bright: [10, 100], gray: [10, 96], dark: [10, 90], shadow: [10, 76], black: [10, 58],
         background: [10, 4], panelBackground: [10, 9], panelBackgroundBright: [10, 16], panelBackgroundDark: [10, 6],
         headerBackground: [10, 3], footerBackground: [10, 5]
+    },
+    jet: {
+        bright: [4, 98], gray: [3, 67], dark: [3, 60], shadow: [3, 32], black: [4, 16],
+        background: [6, 4], panelBackground: [6, 4], panelBackgroundBright: [4, 7], panelBackgroundDark: [8, 2.5],
+        headerBackground: [10, 1.5], footerBackground: [8, 2.5]
     }
 }
 
@@ -35,7 +41,7 @@ let scheme: ColorScheme = DefaultColorScheme
 
 const neutral = (name: NeutralName): Color => {
     const [saturation, lightness] = Neutrals[scheme][name]
-    return new Color(NeutralHue, saturation, lightness)
+    return new Color(NeutralHue[scheme], saturation, lightness)
 }
 
 export const Colors = {
@@ -62,6 +68,7 @@ export const Colors = {
 }
 
 export const setColorScheme = (value: ColorScheme): void => {scheme = value}
+export const colorScheme = (): ColorScheme => scheme
 
 export const initializeColors = (root: { style: { setProperty: (name: string, value: string) => void } }) => {
     Object.entries(Colors).forEach(([name, value]) => {

@@ -22,7 +22,7 @@ export const prepareBooth = (): void => {
     Object.assign(visibility, {"visible-help-hints": false, "enable-history-buttons": false, "base-frequency": false,
         "toasts": false, "show-output-track": false, "offer-studio-tour": false})
     Object.assign(timeline, {markers: false, tempo: false, signature: false, clips: false, "follow-cursor": true})
-    Object.assign(appearance, {"clamp-to-60fps": false})
+    Object.assign(appearance, {"clamp-to-60fps": false, "color-scheme": "jet"}) // BRAVOH's JET NIGHT (studio-enums Colors)
     // only the song on camera: no studio header or footer, no panel title, no tool row, no create buttons
     // (prefix selectors: the studio's class names carry a build-made suffix)
     document.head.append(Object.assign(document.createElement("style"), {textContent: `
@@ -32,6 +32,7 @@ export const prepareBooth = (): void => {
         [class^="loop-area-editor"], [class^="TimelineHeader"] {visibility: hidden}
         [class^="Scroller"], [class^="time-axis"] > .end-marker, [class^="AudioUnitChannelControls"],
         [class^="TrackHeader"] > button, [class^="TrackHeader"] > svg, .track-resizer {display: none !important}
+        [class^="TrackHeader"] svg {color: var(--color-gray) !important}
         [class^="time-axis"] > .cursor {background-color: oklch(0.71 0.19 350) !important; opacity: 1 !important;
             width: 2px !important; box-shadow: 0 0 12px oklch(0.71 0.19 350 / 0.6) !important}`}))
 }

@@ -1,3 +1,5 @@
+import {colorScheme} from "@opendaw/studio-enums"
+
 export interface RegionPaintBucket {
     labelColor: string
     labelBackground: string
@@ -11,6 +13,7 @@ export namespace RegionPaintBucket {
         hue: number,
         mute: boolean
     }, selected: boolean, forceMute: boolean): RegionPaintBucket => {
+        if (colorScheme() === "jet") return jet(mute || forceMute, selected)
         const saturationFactor = mute || forceMute ? 0.05 : 1.0
         const fullSat = 100 * saturationFactor
         const normSat = 75 * saturationFactor
@@ -22,4 +25,14 @@ export namespace RegionPaintBucket {
         const loopStrokeColor = `hsl(${hue}, ${normSat}%, 58%)`
         return {labelColor, labelBackground, contentColor, contentBackground, loopStrokeColor}
     }
+
+    // BRAVOH's booth: every region in the room's ink, notes as light, the selection the one pink (JET NIGHT).
+    const ink = (alpha: number) => `oklch(0.985 0.002 350 / ${alpha})`
+    const jet = (muted: boolean, selected: boolean): RegionPaintBucket => ({
+        labelColor: selected ? "oklch(0.14 0.04 350)" : "oklch(0.735 0.005 350)",
+        labelBackground: selected ? "oklch(0.71 0.19 350 / 0.85)" : ink(0.08),
+        contentColor: ink(muted ? 0.3 : 0.85),
+        contentBackground: selected ? "oklch(0.71 0.19 350 / 0.08)" : ink(0.04),
+        loopStrokeColor: ink(0.14)
+    })
 }
