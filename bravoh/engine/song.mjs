@@ -112,16 +112,17 @@ export class Song {
     await this.#save()
     return {undone, turns: taken.size}
   }
-  // The song as one file the phone plays (16-bit WAV), rendered once per change of the song.
+  // The song as one file the phone plays, rendered and encoded once per change of the song: `encode` turns the
+  // 16-bit WAV into what the platform plays natively ({bytes, type}), the WAV itself when it cannot.
   version = 0
   #bounce = null
-  async bounce(render) {
+  async bounce(render, encode = async wav => ({bytes: wav, type: "audio/wav"})) {
     if (!this.#graph) return null
     if (this.#bounce?.version !== this.version) {
       const version = this.version
-      this.#bounce = {version, wav: pcm16(await render(this.bytes()))}
+      this.#bounce = {version, file: await encode(pcm16(await render(this.bytes())))}
     }
-    return this.#bounce.wav
+    return this.#bounce.file
   }
   // ONE SAVE AT A TIME PER SONG, each on its own tmp file. The booth page's writes save on a timer beside a
   // program's apply: two saves on one ".tmp" raced, the second rename found it gone (ENOENT, staging 11-04),
