@@ -24,7 +24,10 @@ export const prepareBooth = (): void => {
     Object.assign(timeline, {markers: false, tempo: false, signature: false, clips: false, "follow-cursor": true})
     Object.assign(appearance, {"clamp-to-60fps": false, "color-scheme": "jet"}) // BRAVOH's JET NIGHT (studio-enums Colors)
     // only the song on camera: no studio header or footer, no panel title, no tool row, no create buttons
-    // (prefix selectors: the studio's class names carry a build-made suffix)
+    // (prefix selectors: the studio's class names carry a build-made suffix). THE CAMERA IS A PHONE'S: the host films
+    // the page at 427x240 CSS px (1280x720 at 3), so the names' column keeps the names and drops the hidden
+    // controls' room (18rem was 68% of that width) and a row is two lines tall: a track name read 9 px on a 390 px
+    // phone held upright, where at 853 CSS px it read 4.6 (measured 11-05)
     document.head.append(Object.assign(document.createElement("style"), {textContent: `
         .ground > [class^="Header"], .ground > footer, .ground > .room-status,
         [class^="PanelPlaceholder"] > header, [class^="TracksFooter"], .create-buttons {display: none !important}
@@ -33,6 +36,8 @@ export const prepareBooth = (): void => {
         [class^="Scroller"], [class^="time-axis"] > .end-marker, [class^="AudioUnitChannelControls"],
         [class^="TrackHeader"] > button, [class^="TrackHeader"] > svg, .track-resizer {display: none !important}
         [class^="AudioUnitTracks"] {--color: var(--color-gray) !important}
+        :root {--timeline-header-width: 8.5rem !important; --track-min-height: 2rem !important}
+        [class^="TrackHeader"] {grid-template-columns: 28px 1fr 0 0 !important}
         [class^="time-axis"] > .cursor {background-color: oklch(0.71 0.19 350) !important; opacity: 1 !important;
             width: 2px !important; box-shadow: 0 0 12px oklch(0.71 0.19 350 / 0.6) !important}`}))
 }
@@ -102,15 +107,17 @@ const join = async (service: StudioService): Promise<unknown> => {
         return Math.ceil(end / barOf()) * barOf()
     }
     // the whole song in view, up to 16 bars (a longer one is followed by the playhead), and its tracks sharing the
-    // height (a track's own height is in the song; this is the default under it, so the song is never written)
-    let fitted = -1, rows = -1
+    // height the rows' own box holds, down to two lines (a track's own height is in the song; this is the default under it,
+    // so the song is never written)
+    let fitted = -1, rows = ""
     const fit = () => {
         const end = Math.min(Math.max(songEnd(), 4 * barOf()), 16 * barOf())
         if (end !== fitted) {service.timeline.range.showUnitInterval(0, end); fitted = end}
         const tracks = project.boxGraph.boxes().filter(box => box.name === "TrackBox").length
-        if (tracks !== rows) {
-            rows = tracks
-            const height = Math.max(56, Math.min(240, Math.floor((innerHeight - 96) / Math.max(1, tracks))))
+        const room = document.querySelector("[data-unit]")?.parentElement?.clientHeight ?? 0
+        if (`${tracks}:${room}` !== rows) {
+            rows = `${tracks}:${room}`
+            const height = Math.max(32, Math.min(240, Math.floor(room / Math.max(1, tracks))))
             document.documentElement.style.setProperty("--track-height", `${height}px`)
         }
     }
