@@ -1,13 +1,29 @@
-import {asInstanceOf, StringMapping, Terminable, Terminator, ValueMapping} from "@opendaw/lib-std"
+import {asInstanceOf, StringMapping, Terminable, Terminator, UUID, ValueMapping} from "@opendaw/lib-std"
 import {Field} from "@opendaw/lib-box"
 import {Pointers} from "@opendaw/studio-enums"
 import {WclapParameterBox} from "@opendaw/studio-boxes"
 import {ParameterAdapterSet} from "../ParameterAdapterSet"
+import {WclapParamInfo} from "../protocols"
 
 const IS_STEPPED = 1 << 0 // CLAP_PARAM_IS_STEPPED
 
 // Keeps a parameter adapter per `WclapParameterBox` child of a WebCLAP device, shared by the effect and instrument
 export namespace WclapParameterAdapters {
+    const IS_HIDDEN = 1 << 2
+    const IS_READONLY = 1 << 3
+
+    // the parameters a device keeps a box for: what a user or a script can set and automate
+    export const isAutomatable = ({flags}: Pick<WclapParamInfo, "flags">): boolean => (flags & (IS_HIDDEN | IS_READONLY)) === 0
+
+    // every client derives the same uuid, so engines reporting at once in a live room create one box. The last
+    // byte is always flipped, else clap id 0 would hand out the device's own uuid.
+    export const uuidOf = (deviceUuid: UUID.Bytes, clapId: number): UUID.Bytes => {
+        const bytes = new Uint8Array(deviceUuid)
+        new DataView(bytes.buffer).setUint32(0, new DataView(bytes.buffer).getUint32(0) ^ clapId)
+        bytes[15] ^= 0xA5
+        return bytes
+    }
+
     export const subscribe = (parametric: ParameterAdapterSet, parameters: Field<Pointers.Parameter>): Terminable => {
         const ranges = new Terminator()
         return Terminable.many(ranges, parameters.pointerHub.catchupAndSubscribe({

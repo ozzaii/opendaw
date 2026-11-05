@@ -114,6 +114,22 @@ const libraryFile = async uuid => {
 }
 const sampleBytes = async (key, uuid) =>
   (await readFile(join(samplesDir(key), `${uuid}.wav`)).catch(() => null)) ?? libraryFile(uuid)
+// WHAT A PROGRAM ADDS BESIDE SAMPLES, kept with its song like its samples: soundfonts (.sf2) and amp models (.nam
+// JSON text), each keyed by the SHA-256 of its content as the studio keys an import. The amp models also come from the
+// house library, ENGINE_DATA/nam/*.nam, read fresh on every listing.
+const contentUuid = async bytes => UUID.toString(await UUID.sha256(new Uint8Array(bytes).buffer))
+const soundfontsDir = key => join(DATA, "soundfonts", key)
+const soundfontIndex = async key => JSON.parse(await readFile(join(soundfontsDir(key), "index.json"), "utf8").catch(() => "[]"))
+const songNamFile = key => join(DATA, "nam-songs", `${key}.json`)
+const houseNam = async () => {
+  const dir = join(DATA, "nam")
+  const files = (await readdir(dir).catch(() => [])).filter(file => file.endsWith(".nam")).sort()
+  return Promise.all(files.map(async file => {
+    const model = await readFile(join(dir, file), "utf8")
+    return {uuid: await contentUuid(Buffer.from(model)), name: file.slice(0, -4), model}
+  }))
+}
+const namModels = async key => [...await houseNam(), ...JSON.parse(await readFile(songNamFile(key), "utf8").catch(() => "[]"))]
 const methods = {
   open: async (song) => ({project: song.bytes(), name: song.name}),
   apply: async (song, {project, name, tasks, checksum}, turn) =>
@@ -183,6 +199,15 @@ export const server = createServer(async (request, response) => {
       await rm(renderFile(key, id), {force: true})
       response.writeHead(200, {"content-type": "audio/wav", "content-length": bytes.byteLength}); return response.end(bytes)
     }
+    if (request.method === "GET" && method === "soundfonts") return send(response, 200, await soundfontIndex(key))
+    if (request.method === "GET" && method === "soundfont") {
+      const uuid = new URL(request.url, "http://engine").searchParams.get("uuid") ?? ""
+      const known = /^[0-9a-f-]{36}$/.test(uuid) ? (await soundfontIndex(key)).find(one => one.uuid === uuid) : undefined
+      const bytes = known ? await readFile(join(soundfontsDir(key), `${uuid}.sf2`)).catch(() => null) : null
+      if (!bytes) return send(response, 404, {why: "no such soundfont"})
+      response.writeHead(200, {"content-type": "application/octet-stream", "x-name": encodeURIComponent(known.name)}); return response.end(bytes)
+    }
+    if (request.method === "GET" && method === "nam") return send(response, 200, await namModels(key))
     if (request.method === "GET" && method === "sample") {
       const uuid = new URL(request.url, "http://engine").searchParams.get("uuid") ?? ""
       if (!/^[0-9a-f-]{36}$/.test(uuid)) return send(response, 404, {why: "no such sample"})
@@ -208,7 +233,33 @@ export const server = createServer(async (request, response) => {
       if (!(song.bounced?.version > version)) song.bounced = {version, file}
       return send(response, 200, {version})
     }
+    if (method === "soundfonts") {
+      const name = String(new URL(request.url, "http://engine").searchParams.get("name") ?? "").slice(0, 200)
+      const bytes = await body(request)
+      // the RIFF header of a soundfont: anything else would only fail later, inside a render
+      if (bytes.length < 12 || bytes.toString("ascii", 0, 4) !== "RIFF" || bytes.toString("ascii", 8, 12) !== "sfbk") return send(response, 400, {why: "not a soundfont (.sf2)"})
+      const uuid = await contentUuid(bytes)
+      return send(response, 200, await serial(key, async () => {
+        await mkdir(soundfontsDir(key), {recursive: true})
+        await writeFile(join(soundfontsDir(key), `${uuid}.sf2`), bytes)
+        const index = await soundfontIndex(key)
+        const soundfont = {uuid, name: name || uuid}
+        await writeFile(join(soundfontsDir(key), "index.json"), JSON.stringify([...index.filter(one => one.uuid !== uuid), soundfont]))
+        return soundfont
+      }))
+    }
     const input = JSON.parse((await body(request)).toString("utf8") || "{}")
+    if (method === "nam") {
+      const model = String(input.model ?? ""), name = String(input.name ?? "").slice(0, 200)
+      try {JSON.parse(model)} catch {return send(response, 400, {why: "not an amp model (.nam JSON)"})}
+      const added = {uuid: await contentUuid(Buffer.from(model)), name, model}
+      return send(response, 200, await serial(key, async () => {
+        const own = JSON.parse(await readFile(songNamFile(key), "utf8").catch(() => "[]"))
+        await mkdir(join(DATA, "nam-songs"), {recursive: true})
+        await writeFile(songNamFile(key), JSON.stringify([...own.filter(one => one.uuid !== added.uuid), added]))
+        return added
+      }))
+    }
     if (method === "start") return send(response, 200, await serial(key, async () => (await songOf(key)).start(String(input.name ?? "").slice(0, 200))))
     if (method === "mark") return send(response, 200, await serial(key, async () => (await songOf(key)).mark(String(input.turn ?? ""))))
     if (method === "undo") return send(response, 200, await serial(key, async () => (await songOf(key)).undo(Number(input.turns ?? 1))))

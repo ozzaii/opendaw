@@ -8,9 +8,10 @@ import {AudioData, ppqn, WavFile} from "@opendaw/lib-dsp"
 import {BoxGraph} from "@opendaw/lib-box"
 import {ProjectSkeleton} from "@opendaw/studio-adapters"
 import {MixdownSection, Project, StudioPreferences, YService} from "@opendaw/studio-core"
+import {ScriptHostProtocol} from "@opendaw/studio-scripting"
 import {StudioService} from "@/service/StudioService"
 import {ScriptAnswers} from "@/service/ScriptAnswers"
-import {attachSongSamples} from "@/service/BravohBooth"
+import {attachSongSamples, attachSongSoundfonts} from "@/service/BravohBooth"
 
 // Read once, at the first line of main.ts: the app's router rewrites the location while it boots.
 const asked = new URLSearchParams(location.hash.slice(1))
@@ -132,7 +133,24 @@ const reached = async (before: int): Promise<void> => {
     console.warn("[engine] the store did not see the edit within 2 s")
 }
 
+// A SCRIPT'S OTHER HOST CALLS: the studio's catalogues as the code editor answers them, and what a program adds kept by
+// the store with the song (this page keeps nothing, and a booth page plays the same song)
+type HostCalls = Pick<ScriptHostProtocol, "listSoundfonts" | "addSoundfont" | "listNamModels" | "addNamModel" | "listWclaps" | "describeWclap">
+const hostCalls = (service: StudioService): HostCalls => ({
+    listSoundfonts: async () => [...await ScriptAnswers.listSoundfonts(service), ...await answerOf("soundfonts")],
+    addSoundfont: (buffer, name) => post(`soundfonts?name=${encodeURIComponent(name)}`, buffer),
+    listNamModels: () => answerOf("nam"),
+    addNamModel: (model, name) => post("nam", JSON.stringify({model, name})),
+    listWclaps: () => ScriptAnswers.listWclaps(),
+    describeWclap: (url, clapId) => ScriptAnswers.describeWclap(service, url, clapId)
+})
+
 const methods: Record<string, (service: StudioService, input: any, turn: string) => Promise<unknown>> = {
+    host: async (service, {call, args}) => {
+        const calls = hostCalls(service)
+        if (!Object.hasOwn(calls, call)) {throw new Error(`no such host call: ${call}`)}
+        return (calls[call as keyof HostCalls] as (...args: ReadonlyArray<unknown>) => Promise<unknown>)(...(args ?? []))
+    },
     open: async service => {
         const song = await roomOf(service)
         return song === null ? {project: null, name: ""} : {project: ProjectSkeleton.encode(song.project.boxGraph), name: song.title}
@@ -194,6 +212,7 @@ let service: StudioService | undefined
 export const startEngine = (booted: StudioService): void => {
     service = booted
     attachSongSamples(service, store)
+    attachSongSoundfonts(service, store)
     // joined at once when there is a song; a song made later is joined on the call that needs it
     roomOf(service).catch(error => console.warn("[engine] first join:", error)).finally(() => ready.resolve())
 }

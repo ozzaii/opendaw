@@ -5,7 +5,8 @@
   "license": "AGPL-3.0-or-later",
   "scripts": {
     "build": "esbuild preamble.mjs --bundle --platform=node --format=esm --outfile=dist/preamble.mjs && esbuild proof.mjs --bundle --platform=node --format=esm --outfile=dist/proof.mjs",
-    "proof": "node --import ./dist/preamble.mjs dist/proof.mjs"
+    "proof": "node --import ./dist/preamble.mjs dist/proof.mjs",
+    "build:fork": "esbuild preamble.mjs --bundle --platform=node --format=esm --outfile=dist/preamble.mjs --alias:@opendaw/studio-scripting=../../packages/studio/scripting --alias:@opendaw/lib-dsp=../../packages/lib/dsp"
   },
   "dependencies": {
     "@opendaw/lib-box": "0.0.103",

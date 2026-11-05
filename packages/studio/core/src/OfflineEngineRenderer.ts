@@ -27,7 +27,7 @@ import {
     OfflineEngineInitializeConfig,
     OfflineEngineProtocol,
     OfflineEngineRenderConfig
-, ScriptCompiler, SignalGraph, WclapBundle, WclapGuiInfo, WclapGuiSize, WclapPanelInfo, WclapPluginInfo} from "@opendaw/studio-adapters"
+, ScriptCompiler, SignalGraph, WclapBundle, WclapGuiInfo, WclapGuiSize, WclapPanelInfo, WclapParamInfo, WclapPluginInfo, WclapStatus} from "@opendaw/studio-adapters"
 import {Project} from "./project"
 import {WclapBundles} from "./wclap"
 import {AudioWorklets} from "./AudioWorklets"
@@ -41,6 +41,13 @@ import type {SoundFont2} from "soundfont2"
 // attachment are injected here rather than imported.
 let engineWorker: Option<{url: string, attachment: Record<string, unknown>}> = Option.None
 
+// What a render may want to hear from its engine besides the audio: the WebCLAP plugins report their parameters and
+// their load status once loaded (an offline render has no user to show them to, so by default nobody listens).
+export type OfflineEngineListeners = {
+    wclapParams?: (uuid: string, params: ReadonlyArray<WclapParamInfo>) => void
+    wclapStatus?: (uuid: string, status: WclapStatus) => void
+}
+
 export class OfflineEngineRenderer {
     // `attachment` travels to the worker as `config.variant` (the wasm artifacts base url).
     static install(url: string, attachment: Record<string, unknown>): void {
@@ -53,7 +60,8 @@ export class OfflineEngineRenderer {
     static async create(source: Project,
                         optExportConfiguration: Option<ExportConfiguration>,
                         sampleRate: int = 48_000,
-                        abortSignal?: AbortSignal
+                        abortSignal?: AbortSignal,
+                        listeners: OfflineEngineListeners = {}
     ): Promise<OfflineEngineRenderer> {
         const numStems = ExportConfiguration.countStems(optExportConfiguration)
         if (numStems === 0) {return panic("Nothing to export")}
@@ -123,13 +131,13 @@ export class OfflineEngineRenderer {
             fetchWclapBundle: (url: string): Promise<WclapBundle> => WclapBundles.fetch(url),
             wclapSend: (): void => {},
             wclapState: (): void => {},
-            wclapParams: (): void => {},
+            wclapParams: (uuid: string, params: ReadonlyArray<WclapParamInfo>): void => listeners.wclapParams?.(uuid, params),
             wclapParam: (): void => {},
             wclapHovered: (): void => {},
             wclapResizeGui: (): void => {},
             wclapShowGui: (): void => {},
             wclapHideGui: (): void => {},
-            wclapStatus: (): void => {},
+            wclapStatus: (uuid: string, status: WclapStatus): void => listeners.wclapStatus?.(uuid, status),
             wclapRequestSave: (): void => {},
             notifyClipSequenceChanges: (): void => {},
             switchMarkerState: (): void => {},

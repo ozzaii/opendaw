@@ -50,6 +50,74 @@ export interface SoundfontFile {
 }
 
 /**
+ * A neural amp model (a .nam file) known to the studio. Obtain one via {@link Api.listNamModels} or {@link Api.addNamModel}
+ * @group Samples
+ */
+export interface NamModel {
+    /** Unique id of the model (uuid string) */
+    readonly uuid: string
+    /** Display name */
+    readonly name: string
+    /** The model itself: the .nam file's JSON text */
+    readonly model: string
+}
+
+/**
+ * A WebCLAP plugin the studio can load. Obtain one via {@link Api.listWclaps}
+ * @group Plugins
+ */
+export interface WclapPlugin {
+    /** Where the studio loads the plugin's bundle from */
+    readonly url: string
+    /** The plugin's CLAP id within its bundle */
+    readonly clapId: string
+    /** Display name */
+    readonly name: string
+    /** Vendor */
+    readonly vendor: string
+    /** CLAP features, e.g. "instrument", "audio-effect", "synthesizer", "reverb" */
+    readonly features: ReadonlyArray<string>
+}
+
+/**
+ * One parameter of a WebCLAP plugin, as the loaded plugin reports it. Obtain them via {@link Api.describeWclap}
+ * @group Plugins
+ */
+export interface WclapParameterInfo {
+    /** CLAP parameter id */
+    readonly id: int
+    /** Display name */
+    readonly name: string
+    /** The plugin's group of the parameter, e.g. "Filter" (may be empty) */
+    readonly module: string
+    /** Lowest plain value */
+    readonly min: float
+    /** Highest plain value */
+    readonly max: float
+    /** Plain value the plugin starts with */
+    readonly defaultValue: float
+    /** CLAP parameter flags (bit 0: stepped) */
+    readonly flags: int
+}
+
+/**
+ * Integrated and peak measures of a piece of audio (ITU-R BS.1770-4, EBU R128). Obtain via {@link Api.measure}
+ * @group Samples
+ */
+export interface Loudness {
+    /** Gated integrated loudness in LUFS */
+    readonly integrated: number
+    /** Loudest short-term (3 s) loudness in LUFS */
+    readonly shortTermMax: number
+    /** Loudness range (EBU Tech 3342) in LU */
+    readonly range: number
+    /** True peak (4x oversampled) in dBTP */
+    readonly truePeak: number
+    /** RMS over all channels in dBFS */
+    readonly rms: number
+}
+
+/**
  * Recursive partial used for construction props. Functions and read-only references are ignored.
  * @internal
  */
@@ -587,12 +655,21 @@ export interface MaximizerEffect extends AudioEffect {
 }
 
 /**
- * Neural amp modeler (model is chosen in the studio)
+ * Neural amp modeler
  * @group Audio Effects
  */
 export interface NeuralAmpEffect extends AudioEffect {
     /** Always "NeuralAmp" */
     readonly key: "NeuralAmp"
+    /**
+     * The amp model (null = none, the effect passes the signal through)
+     * @example
+     * ```ts
+     * const models = await openDAW.listNamModels()
+     * unit.addAudioEffect("NeuralAmp").model = models.find(model => /plexi/i.test(model.name)) ?? null
+     * ```
+     */
+    model: Nullable<NamModel>
     /** Input gain in dB (default 0) */
     inputGain: float
     /** Output gain in dB (default 0) */
@@ -885,6 +962,66 @@ export interface FrequencySplitEffect extends AudioEffect {
 }
 
 /**
+ * A parameter of a hosted WebCLAP plugin
+ * @group Plugins
+ */
+export interface WclapParameter {
+    /** CLAP parameter id */
+    readonly id: int
+    /** Display name */
+    readonly name: string
+    /** Lowest plain value */
+    readonly min: float
+    /** Highest plain value */
+    readonly max: float
+    /** Plain value the plugin starts with */
+    readonly defaultValue: float
+    /** Plain value, min to max */
+    value: float
+}
+
+/**
+ * A device hosting a WebCLAP plugin, see {@link WclapInstrument} and {@link WclapEffect}
+ * @group Plugins
+ */
+export interface WclapDevice {
+    /**
+     * The hosted plugin (null = none). Another plugin starts without the previous one's state and parameters
+     * @example
+     * ```ts
+     * const plugins = await openDAW.listWclaps()
+     * const effect = unit.addAudioEffect("Wclap")
+     * effect.plugin = plugins.find(plugin => /reverb/i.test(plugin.name))!
+     * ```
+     */
+    plugin: Nullable<Pick<WclapPlugin, "url" | "clapId"> & Partial<Pick<WclapPlugin, "name">>>
+    /** The plugin's saved state (its CLAP state stream). Empty = the plugin's defaults */
+    state: Int8Array
+    /** The parameters set on this device. A parameter not listed plays at the plugin's default */
+    readonly parameters: ReadonlyArray<WclapParameter>
+    /** A set parameter by its name, or null */
+    parameter(name: string): Nullable<WclapParameter>
+    /**
+     * Set a parameter, as {@link Api.describeWclap} reports it, to a plain value
+     * @example
+     * ```ts
+     * const [mix] = (await openDAW.describeWclap(effect.plugin!)).filter(info => /mix/i.test(info.name))
+     * effect.setParameter(mix, 0.3)
+     * ```
+     */
+    setParameter(parameter: WclapParameterInfo, value: float): WclapParameter
+}
+
+/**
+ * Hosts a WebCLAP audio effect
+ * @group Plugins
+ */
+export interface WclapEffect extends AudioEffect, WclapDevice {
+    /** Always "Wclap" */
+    readonly key: "Wclap"
+}
+
+/**
  * Audio effect types by key. Use the keys with {@link AudioEffectHost.addAudioEffect}
  * @group Audio Effects
  */
@@ -931,6 +1068,8 @@ export interface AudioEffects {
     "StereoSplit": StereoSplitEffect
     /** {@link FrequencySplitEffect} */
     "FrequencySplit": FrequencySplitEffect
+    /** {@link WclapEffect} */
+    "Wclap": WclapEffect
 }
 
 /**
@@ -1338,6 +1477,15 @@ export interface Soundfont extends Instrument {
 }
 
 /**
+ * Hosts a WebCLAP instrument
+ * @group Plugins
+ */
+export interface WclapInstrument extends Instrument, WclapDevice {
+    /** Always "Wclap" */
+    readonly key: "Wclap"
+}
+
+/**
  * A MIDI CC parameter of the MIDI output device
  * @group Instrument Parts
  */
@@ -1709,6 +1857,8 @@ export interface Instruments {
     "Apparat": Apparat
     /** {@link InstrumentComposite} */
     "InstrumentComposite": InstrumentComposite
+    /** {@link WclapInstrument} */
+    "Wclap": WclapInstrument
 }
 
 /**
@@ -2782,6 +2932,33 @@ export interface Api {
     addSample(data: AudioData, name: string): Promise<Sample>
     /** All samples available in the studio (stock and user samples) */
     listSamples(): Promise<ReadonlyArray<Sample>>
+    /**
+     * All soundfonts available in the studio (stock and user soundfonts)
+     * @example
+     * ```ts
+     * const fonts = await openDAW.listSoundfonts()
+     * unit.instrument.file = fonts.find(font => /piano/i.test(font.name)) ?? null
+     * ```
+     */
+    listSoundfonts(): Promise<ReadonlyArray<SoundfontFile>>
+    /** Add a soundfont (.sf2 bytes) to the studio */
+    addSoundfont(data: ArrayBuffer | ArrayBufferView, name: string): Promise<SoundfontFile>
+    /** All neural amp models available in the studio, for {@link NeuralAmpEffect.model} */
+    listNamModels(): Promise<ReadonlyArray<NamModel>>
+    /** Add a neural amp model (a .nam file's JSON text) to the studio */
+    addNamModel(model: string, name: string): Promise<NamModel>
+    /** All WebCLAP plugins the studio can load, for {@link WclapDevice.plugin} */
+    listWclaps(): Promise<ReadonlyArray<WclapPlugin>>
+    /** The parameters a WebCLAP plugin reports once loaded, for {@link WclapDevice.setParameter} */
+    describeWclap(plugin: Pick<WclapPlugin, "url" | "clapId">): Promise<ReadonlyArray<WclapParameterInfo>>
+    /**
+     * Measure loudness and peaks, e.g. of a mixdown
+     * @example
+     * ```ts
+     * const {integrated, truePeak} = openDAW.measure(await project.mixdown())
+     * ```
+     */
+    measure(audio: AudioData): Loudness
     /**
      * Offer a file for download. The studio asks for confirmation, then shows the save dialog
      * @param data - File content

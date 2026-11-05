@@ -14,7 +14,8 @@ import {
     SoundfontDeviceBox,
     SoundfontFileBox,
     TapeDeviceBox,
-    VaporisateurDeviceBox
+    VaporisateurDeviceBox,
+    WclapInstrumentBox
 } from "@opendaw/studio-boxes"
 import {BooleanField, Box, IndexedBox, Int32Field, PointerField, PointerTypes, StringField} from "@opendaw/lib-box"
 import {ClassicWaveform} from "@opendaw/lib-dsp"
@@ -58,7 +59,10 @@ import {
     Vaporisateur,
     VaporisateurLFO,
     VaporisateurNoise,
-    VaporisateurOscillator
+    VaporisateurOscillator,
+    WclapInstrument,
+    WclapParameter,
+    WclapParameterInfo
 } from "../../Api"
 import {Context} from "../Context"
 import {Accessors, Facade, Props} from "../Common"
@@ -73,6 +77,7 @@ import {ScriptSupport} from "./ScriptDevices"
 import {Facades} from "../Facades"
 import {TrackImpls} from "../timeline/Tracks"
 import {TrackType} from "@opendaw/studio-adapters"
+import {WclapSupport} from "./Wclaps"
 
 export type InstrumentDeviceBox = Box & {
     readonly host: PointerField<PointerTypes>
@@ -108,7 +113,7 @@ export abstract class InstrumentFacade<B extends InstrumentDeviceBox = Instrumen
 
 export type AnyInstrumentImpl =
     | VaporisateurImpl | PlayfieldImpl | NanoImpl | SoundfontImpl | MIDIOutputImpl | TapeImpl | NeonImpl | TubularImpl | CubedImpl
-    | ApparatImpl | InstrumentCompositeImpl
+    | ApparatImpl | InstrumentCompositeImpl | WclapInstrumentImpl
 
 export class VaporisateurImpl extends InstrumentFacade<VaporisateurDeviceBox> implements Vaporisateur {
     readonly key = "Vaporisateur" as const
@@ -613,6 +618,24 @@ export class ApparatImpl extends InstrumentFacade<ApparatDeviceBox> implements A
     sample(label: string): ScriptSample {return this.#script.sample(label)}
 }
 
+export class WclapInstrumentImpl extends InstrumentFacade<WclapInstrumentBox> implements WclapInstrument {
+    readonly key = "Wclap" as const
+    readonly #wclap: WclapSupport
+
+    constructor(context: Context, box: WclapInstrumentBox) {
+        super(context, box)
+        this.#wclap = new WclapSupport(context, box)
+    }
+
+    get plugin(): WclapInstrument["plugin"] {return this.#wclap.plugin}
+    set plugin(plugin: WclapInstrument["plugin"]) {this.#wclap.plugin = plugin}
+    get state(): Int8Array {return this.#wclap.state}
+    set state(bytes: Int8Array) {this.#wclap.state = bytes}
+    get parameters(): ReadonlyArray<WclapParameter> {return this.#wclap.parameters}
+    parameter(name: string): Nullable<WclapParameter> {return this.#wclap.parameter(name)}
+    setParameter(info: WclapParameterInfo, value: float): WclapParameter {return this.#wclap.setParameter(info, value)}
+}
+
 export namespace InstrumentImpls {
     export const wrap = (context: Context, box: Box): AnyInstrumentImpl => context.facade(box, () => {
         if (box instanceof VaporisateurDeviceBox) {return new VaporisateurImpl(context, box)}
@@ -626,6 +649,7 @@ export namespace InstrumentImpls {
         if (box instanceof CubedDeviceBox) {return new CubedImpl(context, box)}
         if (box instanceof ApparatDeviceBox) {return new ApparatImpl(context, box)}
         if (box instanceof InstrumentCompositeBox) {return new InstrumentCompositeImpl(context, box)}
+        if (box instanceof WclapInstrumentBox) {return new WclapInstrumentImpl(context, box)}
         return panic(`${box.name} is not a supported instrument`)
     }) as AnyInstrumentImpl
 

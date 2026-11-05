@@ -10,6 +10,7 @@ const hand = async (name, input) => {
   if (answer?.failed || answer?.refused) throw new Error(String(answer.why ?? answer.refused))
   return decode(answer.wire)
 }
+const asked = (call, ...args) => hand("studio_host", {call, args})
 const pending = []
 const host = {
   openProject(buffer, name) {pending.push(hand("studio_apply", {project: buffer, name}))},
@@ -29,7 +30,14 @@ const host = {
     frames.forEach((channel, index) => audio.frames[index].set(channel))
     return audio
   },
-  saveFile: async (buffer, fileName) => (await import("node:fs/promises")).writeFile(fileName, new Uint8Array(buffer))
+  saveFile: async (buffer, fileName) => (await import("node:fs/promises")).writeFile(fileName, new Uint8Array(buffer)),
+  // the studio's catalogues and what a program adds to them: answered by the song's openDAW page (ScriptAnswers)
+  listSoundfonts: () => asked("listSoundfonts"),
+  addSoundfont: (buffer, name) => asked("addSoundfont", buffer, name),
+  listNamModels: () => asked("listNamModels"),
+  addNamModel: (model, name) => asked("addNamModel", model, name),
+  listWclaps: () => asked("listWclaps"),
+  describeWclap: (url, clapId) => asked("describeWclap", url, clapId)
 }
 // openInStudio() answers the host's apply, so a song changed underneath (a checksum refusal) throws into the program.
 const applying = project => {

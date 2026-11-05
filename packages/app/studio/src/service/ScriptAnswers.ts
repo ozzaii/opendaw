@@ -1,8 +1,13 @@
-import {Arrays, DefaultObservableValue, int, Option} from "@opendaw/lib-std"
+import {Arrays, DefaultObservableValue, int, Option, UUID} from "@opendaw/lib-std"
 import {applyUpdateTasks, UpdateTask} from "@opendaw/lib-box"
 import {AudioData} from "@opendaw/lib-dsp"
-import {BoxIO} from "@opendaw/studio-boxes"
-import {MixdownSection, OfflineEngineRenderer, Project, ProjectEnv} from "@opendaw/studio-core"
+import {BoxIO, WclapDeviceBox} from "@opendaw/studio-boxes"
+import {AudioUnitType} from "@opendaw/studio-enums"
+import {AudioUnitFactory, InstrumentFactories, ProjectSkeleton, WclapParamInfo, WclapParameterAdapters} from "@opendaw/studio-adapters"
+import {MixdownSection, OfflineEngineRenderer, Project, ProjectEnv, RenderQuantum, WclapStorage, Workers} from "@opendaw/studio-core"
+import {NamModel, SoundfontFile, WclapParameterInfo, WclapPlugin} from "@opendaw/studio-scripting"
+import {WclapCatalog} from "@/opendaw-api"
+import {StudioService} from "@/service/StudioService"
 
 // The studio's own answers to a script's host calls (ScriptHostProtocol), shared by the code editor and any other
 // host of a script (BRAVOH's engine page): the edit behind its checksum guard, and the offline mixdown of the bytes.
@@ -31,6 +36,80 @@ export namespace ScriptAnswers {
                 ? OfflineEngineRenderer.start(project, Option.None, progress, abortSignal, sampleRate)
                 : OfflineEngineRenderer.renderSection(project, Option.None, section, progress, abortSignal, sampleRate))
         } finally {
+            project.terminate()
+        }
+    }
+
+    // stock and imported soundfonts
+    export const listSoundfonts = async (service: StudioService): Promise<ReadonlyArray<SoundfontFile>> =>
+        (await service.soundfontService.list()).map(({uuid, name}) => ({uuid, name}))
+
+    export const addSoundfont = async (service: StudioService, buffer: ArrayBuffer, name: string): Promise<SoundfontFile> => {
+        const {uuid} = await service.soundfontService.importFile({name, arrayBuffer: buffer})
+        return {uuid, name}
+    }
+
+    // The amp models a script added, beside the studio's other files: OPFS `nam/<uuid>.json`, keyed by content like the
+    // studio's NAM picker keys its model boxes
+    const NamFolder = "nam"
+    export const listNamModels = async (): Promise<ReadonlyArray<NamModel>> => {
+        const entries = await Workers.Opfs.list(NamFolder).catch(() => [])
+        return Promise.all(entries.filter(entry => entry.kind === "file").map(async ({name}) =>
+            JSON.parse(new TextDecoder().decode(await Workers.Opfs.read(`${NamFolder}/${name}`))) as NamModel))
+    }
+
+    export const addNamModel = async (model: string, name: string): Promise<NamModel> => {
+        const added: NamModel = {uuid: await namUuid(model), name, model}
+        await Workers.Opfs.write(`${NamFolder}/${added.uuid}.json`, new TextEncoder().encode(JSON.stringify(added)))
+        return added
+    }
+
+    export const namUuid = async (model: string): Promise<string> =>
+        UUID.toString(await UUID.sha256(new TextEncoder().encode(model).buffer as ArrayBuffer))
+
+    // every plugin of every bundle in the studio's catalogue, addressed the way a device stores its bundle (the
+    // bundle's id: the studio loads it from its own storage, else from where the catalogue publishes it)
+    export const listWclaps = async (): Promise<ReadonlyArray<WclapPlugin>> =>
+        (await WclapCatalog.get().all()).flatMap(entry => entry.plugins.map(({clapId, name, vendor, features}) =>
+            ({url: WclapStorage.urlOf(entry.uuid), clapId, name, vendor, features})))
+
+    // What a plugin reports once loaded: a song holding only the plugin plays a moment in an offline engine of its own
+    export const describeWclap = async (env: ProjectEnv, url: string, clapId: string,
+                                        timeoutMs: int = 30_000): Promise<ReadonlyArray<WclapParameterInfo>> => {
+        const plugin = (await listWclaps()).find(plugin => plugin.url === url && plugin.clapId === clapId)
+        const skeleton = ProjectSkeleton.empty({createDefaultUser: true, createOutputMaximizer: false})
+        const {boxGraph, mandatoryBoxes: {primaryAudioUnitBox}} = skeleton
+        boxGraph.beginTransaction()
+        const device = plugin?.features.includes("instrument") ?? false
+            ? InstrumentFactories.Wclap.create(boxGraph,
+                AudioUnitFactory.create(skeleton, AudioUnitType.Instrument, Option.None).input, "WebCLAP", InstrumentFactories.Wclap.defaultIcon)
+            : WclapDeviceBox.create(boxGraph, UUID.generate(), box => {
+                box.index.setValue(0)
+                box.host.refer(primaryAudioUnitBox.audioEffects)
+            })
+        device.url.setValue(url)
+        device.clapId.setValue(clapId)
+        boxGraph.endTransaction()
+        const project = Project.load(env, ProjectSkeleton.encode(boxGraph) as ArrayBuffer)
+        const reported = Promise.withResolvers<ReadonlyArray<WclapParamInfo>>()
+        const timeout = setTimeout(() => reported.reject(new Error(`${clapId} reported no parameters within ${timeoutMs / 1000} s`)), timeoutMs)
+        const renderer = await OfflineEngineRenderer.create(project, Option.None, 48_000, undefined, {
+            wclapParams: (_uuid, params) => reported.resolve(params),
+            wclapStatus: (_uuid, {state, message}) => {
+                if (state === "failed") {reported.reject(new Error(`${clapId} did not load: ${message}`))}
+            }
+        })
+        try {
+            await renderer.play()
+            // the engine loads the plugin while it runs: step it until the plugin has spoken
+            let spoken = false
+            reported.promise.finally(() => spoken = true).catch(() => {})
+            while (!spoken) {await renderer.step(RenderQuantum * 8)}
+            return (await reported.promise).filter(WclapParameterAdapters.isAutomatable)
+                .map(({id, name, module, min, max, defaultValue, flags}) => ({id, name, module, min, max, defaultValue, flags}))
+        } finally {
+            clearTimeout(timeout)
+            renderer.terminate()
             project.terminate()
         }
     }

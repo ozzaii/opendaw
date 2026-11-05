@@ -3,7 +3,7 @@ import {ProjectSkeleton} from "@opendaw/studio-adapters"
 import {applyUpdateTasks, BoxGraph, UpdateTask} from "@opendaw/lib-box"
 import {BoxIO} from "@opendaw/studio-boxes"
 import {Arrays, Option, UUID} from "@opendaw/lib-std"
-import {Api, MixdownOptions, Project, Sample} from "../Api"
+import {Api, MixdownOptions, NamModel, Project, Sample, SoundfontFile, WclapParameterInfo, WclapPlugin} from "../Api"
 import {ScriptHostProtocol} from "../ScriptHostProtocol"
 import {ApiImpl} from "../impl/ApiImpl"
 import {ProjectImpl} from "../impl/ProjectImpl"
@@ -56,6 +56,24 @@ export class FakeHost implements ScriptHostProtocol {
     async saveFile(buffer: ArrayBuffer, fileName: string, mimeType: string): Promise<void> {
         this.saved.push({byteLength: buffer.byteLength, fileName, mimeType})
     }
+    readonly soundfonts: Array<SoundfontFile> = []
+    readonly namModels: Array<NamModel> = []
+    readonly wclaps: Array<WclapPlugin> = []
+    readonly wclapParameters: Array<WclapParameterInfo> = []
+    async listSoundfonts(): Promise<ReadonlyArray<SoundfontFile>> {return this.soundfonts}
+    async addSoundfont(_buffer: ArrayBuffer, name: string): Promise<SoundfontFile> {
+        const soundfont = {uuid: UUID.toString(UUID.generate()), name}
+        this.soundfonts.push(soundfont)
+        return soundfont
+    }
+    async listNamModels(): Promise<ReadonlyArray<NamModel>> {return this.namModels}
+    async addNamModel(model: string, name: string): Promise<NamModel> {
+        const added = {uuid: UUID.toString(UUID.generate()), name, model}
+        this.namModels.push(added)
+        return added
+    }
+    async listWclaps(): Promise<ReadonlyArray<WclapPlugin>> {return this.wclaps}
+    async describeWclap(_url: string, _clapId: string): Promise<ReadonlyArray<WclapParameterInfo>> {return this.wclapParameters}
 }
 
 export const createFixture = (): { api: Api, host: FakeHost, project: Project } => {

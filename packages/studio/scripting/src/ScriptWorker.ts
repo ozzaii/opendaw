@@ -5,7 +5,7 @@ import {BoxIO} from "@opendaw/studio-boxes"
 import {ScriptExecutionContext, ScriptExecutionProtocol} from "./ScriptExecutionProtocol"
 import {ScriptRunner} from "./ScriptRunner"
 import {ScriptHostProtocol} from "./ScriptHostProtocol"
-import {MixdownOptions, Sample} from "./Api"
+import {MixdownOptions, NamModel, Sample, SoundfontFile, WclapParameterInfo, WclapPlugin} from "./Api"
 
 const messenger: Messenger = Messenger.for(self)
 
@@ -37,6 +37,24 @@ const hostProtocol = Communicator.sender<ScriptHostProtocol>(messenger.channel("
         }
         saveFile(buffer: ArrayBuffer, fileName: string, mimeType: string): Promise<void> {
             return dispatcher.dispatchAndReturn(this.saveFile, buffer, fileName, mimeType)
+        }
+        listSoundfonts(): Promise<ReadonlyArray<SoundfontFile>> {
+            return dispatcher.dispatchAndReturn(this.listSoundfonts)
+        }
+        addSoundfont(buffer: ArrayBuffer, name: string): Promise<SoundfontFile> {
+            return dispatcher.dispatchAndReturn(this.addSoundfont, buffer, name)
+        }
+        listNamModels(): Promise<ReadonlyArray<NamModel>> {
+            return dispatcher.dispatchAndReturn(this.listNamModels)
+        }
+        addNamModel(model: string, name: string): Promise<NamModel> {
+            return dispatcher.dispatchAndReturn(this.addNamModel, model, name)
+        }
+        listWclaps(): Promise<ReadonlyArray<WclapPlugin>> {
+            return dispatcher.dispatchAndReturn(this.listWclaps)
+        }
+        describeWclap(url: string, clapId: string): Promise<ReadonlyArray<WclapParameterInfo>> {
+            return dispatcher.dispatchAndReturn(this.describeWclap, url, clapId)
         }
     })
 

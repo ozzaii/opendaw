@@ -50,11 +50,24 @@ export const attachSongSamples = (service: StudioService, engine: (path: string)
         }
     })
 
+// The soundfonts a program added to the song, the same way: asked after the stock ones
+export const attachSongSoundfonts = (service: StudioService, engine: (path: string) => Promise<Response>): void =>
+    service.chainedSoundfontProvider.attachPeer({
+        fetch: async (uuid: UUID.Bytes, _progress: Progress.Handler) => {
+            const response = await engine(`soundfont?uuid=${UUID.toString(uuid)}`)
+            if (!response.ok) {throw new Error(`soundfont ${UUID.toString(uuid)} is not on the engine`)}
+            const buffer = await response.arrayBuffer()
+            return [buffer, {name: decodeURIComponent(response.headers.get("x-name") ?? UUID.toString(uuid)), size: buffer.byteLength,
+                url: "", license: "", origin: "import"}] as any
+        }
+    })
+
 export const joinBooth = (service: StudioService): void => {join(service).then(joined.resolve, joined.reject)}
 const join = async (service: StudioService): Promise<unknown> => {
     const key = asked.get("booth") ?? "", token = asked.get("token") ?? ""
     const engine = (path: string) => fetch(`/v1/songs/${key}/${path}`, {headers: {authorization: `Bearer ${token}`}})
     attachSongSamples(service, engine)
+    attachSongSoundfonts(service, engine)
     // a booth opened before the first program wrote a song waits for it (404 is "no song yet")
     let answer = await engine("room")
     for (let waited = 0; answer.status === 404 && waited < 600; waited++) {

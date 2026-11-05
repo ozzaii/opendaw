@@ -130,7 +130,13 @@ export const CodeEditorPage: PageFactory<StudioService> = ({lifecycle, service}:
         saveFile: async (buffer: ArrayBuffer, fileName: string, mimeType: string): Promise<void> =>
             Files.saveWithApproval({
                 buffer, headline: "Save File", suggestedName: fileName, types: acceptTypes(fileName, mimeType)
-            })
+            }),
+        listSoundfonts: () => ScriptAnswers.listSoundfonts(service),
+        addSoundfont: (buffer: ArrayBuffer, name: string) => ScriptAnswers.addSoundfont(service, buffer, name),
+        listNamModels: () => ScriptAnswers.listNamModels(),
+        addNamModel: (model: string, name: string) => ScriptAnswers.addNamModel(model, name),
+        listWclaps: () => ScriptAnswers.listWclaps(),
+        describeWclap: (url: string, clapId: string) => ScriptAnswers.describeWclap(service, url, clapId)
     }, scriptWorkerUrl)
     const storage = ScriptStorage.get()
     return (

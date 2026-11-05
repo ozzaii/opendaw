@@ -15,4 +15,9 @@ the program's own RPC hands: `external_studio_open`, `external_studio_apply`, `e
 npm install && npm run build && npm run proof
 ```
 
-Pinned to openDAW `ec8eb0a4` and the npm versions in `package.json`. Licence: AGPL-3.0-or-later, like openDAW.
+`npm run build` bundles the published packages in `package.json`. `npm run build:fork` bundles this fork's own
+packages instead (after the workspace build), so a program gets the fork's scripting API: soundfonts, amp models,
+WebCLAP plugins and `measure`. The host calls beyond the song travel on one more hand, `external_studio_host`
+(`{call, args}`), which the song's openDAW page answers (BravohEngine.ts `host`). The image uses `build:fork`.
+
+Licence: AGPL-3.0-or-later, like openDAW.

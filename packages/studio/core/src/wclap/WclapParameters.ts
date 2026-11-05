@@ -2,7 +2,7 @@ import {asInstanceOf, isDefined, Optional, UUID} from "@opendaw/lib-std"
 import {Field} from "@opendaw/lib-box"
 import {Pointers} from "@opendaw/studio-enums"
 import {WclapParameterBox} from "@opendaw/studio-boxes"
-import {WclapParamGesture, WclapParamInfo} from "@opendaw/studio-adapters"
+import {WclapParamGesture, WclapParamInfo, WclapParameterAdapters} from "@opendaw/studio-adapters"
 import {Project} from "../project"
 import {WclapBoxes} from "./WclapBoxes"
 
@@ -107,17 +107,7 @@ export namespace WclapParameters {
     }
 
     const IS_HIDDEN = 1 << 2
-    const IS_READONLY = 1 << 3
-    const isAutomatable = ({flags}: WclapParamInfo): boolean => (flags & (IS_HIDDEN | IS_READONLY)) === 0
-
-    // every client derives the same uuid, so engines reporting at once in a live room create one box. The last
-    // byte is always flipped, else clap id 0 would hand out the device's own uuid.
-    const parameterUuid = (deviceUuid: UUID.Bytes, clapId: number): UUID.Bytes => {
-        const bytes = new Uint8Array(deviceUuid)
-        new DataView(bytes.buffer).setUint32(0, new DataView(bytes.buffer).getUint32(0) ^ clapId)
-        bytes[15] ^= 0xA5
-        return bytes
-    }
+    const {isAutomatable, uuidOf: parameterUuid} = WclapParameterAdapters
 
     const parametersOf =(project: Project, uuid: string): Optional<Field<Pointers.Parameter>> => {
         const box = project.boxGraph.findBox(UUID.parse(uuid)).unwrapOrNull()

@@ -16,6 +16,7 @@ import {
     GateDeviceBox,
     MaximizerDeviceBox,
     NeuralAmpDeviceBox,
+    NeuralAmpModelBox,
     RevampDeviceBox,
     ReverbDeviceBox,
     StereoCompositeBox,
@@ -23,12 +24,13 @@ import {
     TidalDeviceBox,
     VocoderDeviceBox,
     WaveshaperDeviceBox,
+    WclapDeviceBox,
     WerkstattDeviceBox
 } from "@opendaw/studio-boxes"
 import {Box, Field, IndexedBox, PointerField} from "@opendaw/lib-box"
 import {Mixing, Waveshaper} from "@opendaw/lib-dsp"
 import {Pointers} from "@opendaw/studio-enums"
-import {asInstanceOf, bipolar, float, int, isNull, Nullable, panic, unitValue} from "@opendaw/lib-std"
+import {asInstanceOf, bipolar, float, int, isNull, Nullable, panic, tryCatch, unitValue, UUID} from "@opendaw/lib-std"
 import {
     AnyAudioEffect,
     AnyAudioUnit,
@@ -48,6 +50,7 @@ import {
     GateEffect,
     GroupAudioUnit,
     MaximizerEffect,
+    NamModel,
     NeuralAmpEffect,
     RevampBell,
     RevampEffect,
@@ -64,6 +67,9 @@ import {
     TidalEffect,
     VocoderEffect,
     WaveshaperEffect,
+    WclapEffect,
+    WclapParameter,
+    WclapParameterInfo,
     WerkstattEffect
 } from "../../Api"
 import {Context} from "../Context"
@@ -76,6 +82,7 @@ import {AudioEffectBox, DeviceBoxes} from "./DeviceBoxes"
 import {Guard} from "../Guard"
 import {AudioUnitImpls} from "../AudioUnits"
 import {Sends} from "../Sends"
+import {WclapSupport} from "./Wclaps"
 
 export abstract class AudioEffectFacade<B extends EffectDeviceBox = EffectDeviceBox> extends EffectFacade<B> {
     abstract readonly key: keyof AudioEffects
@@ -112,7 +119,7 @@ export type AnyAudioEffectImpl =
     | AutotuneEffectImpl | CompressorEffectImpl | ConvolverEffectImpl | CrusherEffectImpl | DattorroReverbEffectImpl
     | DelayEffectImpl | FoldEffectImpl | GateEffectImpl | MaximizerEffectImpl | NeuralAmpEffectImpl | RevampEffectImpl
     | ReverbEffectImpl | StereoToolEffectImpl | SinkEffectImpl | TidalEffectImpl | VocoderEffectImpl | WaveshaperEffectImpl
-    | WerkstattEffectImpl | AudioEffectCompositeImpl | StereoSplitEffectImpl | FrequencySplitEffectImpl
+    | WerkstattEffectImpl | AudioEffectCompositeImpl | StereoSplitEffectImpl | FrequencySplitEffectImpl | WclapEffectImpl
 
 export class AutotuneEffectImpl extends AudioEffectFacade<AutotuneDeviceBox> implements AutotuneEffect {
     readonly key = "Autotune" as const
@@ -297,6 +304,26 @@ export class NeuralAmpEffectImpl extends AudioEffectFacade<NeuralAmpDeviceBox> i
     constructor(context: Context, box: NeuralAmpDeviceBox) {
         super(context, box)
         this.bind({inputGain: box.inputGain, outputGain: box.outputGain, mono: box.mono, mix: box.mix})
+    }
+
+    get model(): Nullable<NamModel> {
+        const modelBox = Accessors.pointerBox(this.box.model, NeuralAmpModelBox)
+        return isNull(modelBox) ? null
+            : {uuid: UUID.toString(modelBox.address.uuid), name: modelBox.label.getValue(), model: modelBox.model.getValue()}
+    }
+    set model(model: Nullable<NamModel>) {
+        AudioFiles.assign(this.context, this.box.model, () => {
+            if (isNull(model)) {return null}
+            const parsed = tryCatch(() => UUID.parse(Guard.string(model?.uuid, "model.uuid")))
+            if (parsed.status === "failure") {return panic(new TypeError(`model.uuid: '${model.uuid}' is not a valid uuid`))}
+            const name = Guard.string(model.name, "model.name"), text = Guard.string(model.model, "model.model")
+            // the studio's own NAM picker keys a model box by its content, so one model is one box however often it is set
+            return this.context.boxGraph.findBox<NeuralAmpModelBox>(parsed.value).unwrapOrElse(() =>
+                NeuralAmpModelBox.create(this.context.boxGraph, parsed.value, box => {
+                    box.label.setValue(name)
+                    box.model.setValue(text)
+                }))
+        })
     }
 }
 
@@ -574,6 +601,24 @@ export class FrequencySplitEffectImpl extends AudioEffectFacade<FrequencySplitBo
     get entries(): ReadonlyArray<AudioEffectCompositeEntry> {return listEntries(this.context, this.box.entries)}
 }
 
+export class WclapEffectImpl extends AudioEffectFacade<WclapDeviceBox> implements WclapEffect {
+    readonly key = "Wclap" as const
+    readonly #wclap: WclapSupport
+
+    constructor(context: Context, box: WclapDeviceBox) {
+        super(context, box)
+        this.#wclap = new WclapSupport(context, box)
+    }
+
+    get plugin(): WclapEffect["plugin"] {return this.#wclap.plugin}
+    set plugin(plugin: WclapEffect["plugin"]) {this.#wclap.plugin = plugin}
+    get state(): Int8Array {return this.#wclap.state}
+    set state(bytes: Int8Array) {this.#wclap.state = bytes}
+    get parameters(): ReadonlyArray<WclapParameter> {return this.#wclap.parameters}
+    parameter(name: string): Nullable<WclapParameter> {return this.#wclap.parameter(name)}
+    setParameter(info: WclapParameterInfo, value: float): WclapParameter {return this.#wclap.setParameter(info, value)}
+}
+
 export namespace AudioEffectImpls {
     export const wrap = (context: Context, box: Box): AnyAudioEffectImpl => context.facade(box, () => {
         if (box instanceof AutotuneDeviceBox) {return new AutotuneEffectImpl(context, box)}
@@ -597,6 +642,7 @@ export namespace AudioEffectImpls {
         if (box instanceof AudioEffectCompositeBox) {return new AudioEffectCompositeImpl(context, box)}
         if (box instanceof StereoCompositeBox) {return new StereoSplitEffectImpl(context, box)}
         if (box instanceof FrequencySplitBox) {return new FrequencySplitEffectImpl(context, box)}
+        if (box instanceof WclapDeviceBox) {return new WclapEffectImpl(context, box)}
         return panic(`${box.name} is not a supported audio-effect`)
     }) as AnyAudioEffectImpl
 
