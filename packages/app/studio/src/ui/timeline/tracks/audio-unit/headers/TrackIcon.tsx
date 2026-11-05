@@ -1,7 +1,7 @@
 import {Lifecycle, Terminator, UUID} from "@opendaw/lib-std"
 import {createElement, replaceChildren} from "@opendaw/lib-jsx"
 import {AudioBusBoxAdapter, AudioUnitBoxAdapter, ColorCodes} from "@opendaw/studio-adapters"
-import {IconSymbol} from "@opendaw/studio-enums"
+import {colorScheme, IconSymbol, jewelHue} from "@opendaw/studio-enums"
 import {Icon} from "@/ui/components/Icon.tsx"
 import {StudioService} from "@/service/StudioService"
 
@@ -31,9 +31,12 @@ export const TrackIcon = ({lifecycle, service, audioUnitBoxAdapter}: Construct) 
                 some: inputAdapter => {
                     const render = () => {
                         const symbol = IconSymbol.fromName(inputAdapter.iconField.getValue())
-                        const color = inputAdapter instanceof AudioBusBoxAdapter
-                            ? inputAdapter.colorField.getValue()
-                            : ColorCodes.forAudioType(audioUnitBoxAdapter.type).toString()
+                        // BRAVOH's booth: the unit's jewel, as its regions wear it (RegionPaintBucket).
+                        const color = colorScheme() === "jet"
+                            ? `oklch(0.78 0.13 ${jewelHue(audioUnitBoxAdapter.indexField.getValue())})`
+                            : inputAdapter instanceof AudioBusBoxAdapter
+                                ? inputAdapter.colorField.getValue()
+                                : ColorCodes.forAudioType(audioUnitBoxAdapter.type).toString()
                         replaceChildren(element, <Icon symbol={symbol} style={{color}}/>, lockIcon)
                     }
                     iconLifecycle.own(inputAdapter.iconField.catchupAndSubscribe(render))

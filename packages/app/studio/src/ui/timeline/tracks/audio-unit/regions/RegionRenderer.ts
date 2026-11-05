@@ -81,7 +81,8 @@ export namespace RegionRenderer {
                 const xnInt = x1Int - x0Int
                 const selected = region.isSelected && !filterSelected
                 const {labelColor, labelBackground, contentColor, contentBackground, loopStrokeColor} =
-                    RegionPaintBucket.create(region, selected, trackDisabled)
+                    RegionPaintBucket.create(region, selected, trackDisabled,
+                        trackBoxAdapter.optAudioUnit.mapOr(unit => unit.index.getValue(), 0))
                 context.clearRect(x0Int, 0, xnInt, height)
                 context.fillStyle = labelBackground
                 context.fillRect(x0Int, 0, xnInt, labelHeight)

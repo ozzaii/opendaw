@@ -1,4 +1,4 @@
-import {colorScheme} from "@opendaw/studio-enums"
+import {colorScheme, jewelHue} from "@opendaw/studio-enums"
 
 export interface RegionPaintBucket {
     labelColor: string
@@ -12,8 +12,8 @@ export namespace RegionPaintBucket {
     export const create = ({hue, mute}: {
         hue: number,
         mute: boolean
-    }, selected: boolean, forceMute: boolean): RegionPaintBucket => {
-        if (colorScheme() === "jet") return jet(mute || forceMute, selected)
+    }, selected: boolean, forceMute: boolean, unitIndex: number = 0): RegionPaintBucket => {
+        if (colorScheme() === "jet") return jet(jewelHue(unitIndex), mute || forceMute, selected)
         const saturationFactor = mute || forceMute ? 0.05 : 1.0
         const fullSat = 100 * saturationFactor
         const normSat = 75 * saturationFactor
@@ -26,13 +26,16 @@ export namespace RegionPaintBucket {
         return {labelColor, labelBackground, contentColor, contentBackground, loopStrokeColor}
     }
 
-    // BRAVOH's booth: every region in the room's ink, notes as light, the selection the one pink (JET NIGHT).
-    const ink = (alpha: number) => `oklch(0.985 0.002 350 / ${alpha})`
-    const jet = (muted: boolean, selected: boolean): RegionPaintBucket => ({
-        labelColor: selected ? "oklch(0.14 0.04 350)" : "oklch(0.735 0.005 350)",
-        labelBackground: selected ? "oklch(0.71 0.19 350 / 0.85)" : ink(0.08),
-        contentColor: ink(muted ? 0.3 : 0.85),
-        contentBackground: selected ? "oklch(0.71 0.19 350 / 0.08)" : ink(0.04),
-        loopStrokeColor: ink(0.14)
-    })
+    // BRAVOH's booth (JET NIGHT): a region is a quiet tint of its unit's jewel and its notes that jewel as light; the
+    // selection is the one pink.
+    const jet = (hue: number, muted: boolean, selected: boolean): RegionPaintBucket => {
+        const jewel = (alpha: number) => `oklch(0.71 0.19 ${hue} / ${muted ? alpha / 3 : alpha})`
+        return {
+            labelColor: selected ? "oklch(0.14 0.04 350)" : `oklch(0.84 0.07 ${hue})`,
+            labelBackground: selected ? "oklch(0.71 0.19 350 / 0.85)" : jewel(0.14),
+            contentColor: `oklch(0.9 0.07 ${hue} / ${muted ? 0.3 : 0.92})`,
+            contentBackground: selected ? "oklch(0.71 0.19 350 / 0.1)" : jewel(0.07),
+            loopStrokeColor: jewel(0.3)
+        }
+    }
 }

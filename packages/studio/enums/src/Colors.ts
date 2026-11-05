@@ -69,6 +69,10 @@ export const Colors = {
 
 export const setColorScheme = (value: ColorScheme): void => {scheme = value}
 export const colorScheme = (): ColorScheme => scheme
+// BRAVOH's desk jewels (its DESIGN.md §5) at the brand's lightness and chroma, one per audio unit in turn: amethyst,
+// jade, sapphire. Rose and pink are left out: pink is the playhead's and the selection's alone.
+const Jewels = [310, 175, 262] as const
+export const jewelHue = (unitIndex: number): number => Jewels[((unitIndex % Jewels.length) + Jewels.length) % Jewels.length]
 
 export const initializeColors = (root: { style: { setProperty: (name: string, value: string) => void } }) => {
     Object.entries(Colors).forEach(([name, value]) => {
