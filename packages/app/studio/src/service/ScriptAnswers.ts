@@ -3,7 +3,7 @@ import {applyUpdateTasks, UpdateTask} from "@opendaw/lib-box"
 import {AudioData} from "@opendaw/lib-dsp"
 import {BoxIO, WclapDeviceBox} from "@opendaw/studio-boxes"
 import {AudioUnitType} from "@opendaw/studio-enums"
-import {AudioUnitFactory, InstrumentFactories, ProjectSkeleton, WclapParamInfo, WclapParameterAdapters} from "@opendaw/studio-adapters"
+import {AudioUnitFactory, InstrumentFactories, ProjectSkeleton, TrackType, WclapParamInfo, WclapParameterAdapters} from "@opendaw/studio-adapters"
 import {MixdownSection, OfflineEngineRenderer, Project, ProjectEnv, RenderQuantum, WclapStorage, Workers} from "@opendaw/studio-core"
 import {NamModel, SoundfontFile, WclapParameterInfo, WclapPlugin} from "@opendaw/studio-scripting"
 import {WclapCatalog} from "@/opendaw-api"
@@ -82,7 +82,8 @@ export namespace ScriptAnswers {
         boxGraph.beginTransaction()
         const device = plugin?.features.includes("instrument") ?? false
             ? InstrumentFactories.Wclap.create(boxGraph,
-                AudioUnitFactory.create(skeleton, AudioUnitType.Instrument, Option.None).input, "WebCLAP", InstrumentFactories.Wclap.defaultIcon)
+                AudioUnitFactory.create(skeleton, AudioUnitType.Instrument,
+                    AudioUnitFactory.trackTypeToCapture(boxGraph, TrackType.Notes)).input, "WebCLAP", InstrumentFactories.Wclap.defaultIcon)
             : WclapDeviceBox.create(boxGraph, UUID.generate(), box => {
                 box.index.setValue(0)
                 box.host.refer(primaryAudioUnitBox.audioEffects)
