@@ -3,7 +3,7 @@
 // page as video and hears it as audio; no input comes back. Opened as `/studio/#booth=<song key>&token=<engine token>`.
 import {Option, Progress, UUID} from "@opendaw/lib-std"
 import {WavFile} from "@opendaw/lib-dsp"
-import {StudioPreferences, YService} from "@opendaw/studio-core"
+import {Project, StudioPreferences, YService} from "@opendaw/studio-core"
 import {StudioService} from "@/service/StudioService"
 
 // Read once, at the first line of main.ts: the app's router rewrites the location while it boots.
@@ -73,8 +73,14 @@ const join = async (service: StudioService): Promise<unknown> => {
     const engine = (path: string) => fetch(`/v1/songs/${key}/${path}`, {headers: {authorization: `Bearer ${token}`}})
     attachSongSamples(service, engine)
     attachSongSoundfonts(service, engine)
-    // a booth opened before the first program wrote a song waits for it (404 is "no song yet")
+    // a booth opened before the first program wrote a song waits for it (404 is "no song yet"), and the camera films the
+    // empty studio meanwhile: a blank project of the page's own, never written anywhere, replaced by the song's room
     let answer = await engine("room")
+    if (answer.status === 404) {
+        service.projectProfileService.setProject(Project.new(service), "")
+        service.switchScreen("booth")
+        document.body.classList.add("booth-joined")
+    }
     for (let waited = 0; answer.status === 404 && waited < 600; waited++) {
         await new Promise(resolve => setTimeout(resolve, 1000))
         answer = await engine("room")

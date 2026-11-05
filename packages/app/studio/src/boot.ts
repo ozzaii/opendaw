@@ -211,15 +211,18 @@ export const boot = async ({workersUrl, workletsUrl, wasmProcessorUrl, wasmOffli
                 clearInterval(checkExtensions)
             }
         }, 5_000)
-        const checkUpdates = setInterval(async () => {
-            if (!navigator.onLine) {return}
-            const {status, value: newBuildInfo} = await Promises.tryCatch(loadBuildInfo())
-            if (status === "resolved" && newBuildInfo.uuid !== undefined && newBuildInfo.uuid !== buildInfo.uuid) {
-                document.body.prepend(UpdateMessage({service}))
-                console.warn("A new version is online.")
-                clearInterval(checkUpdates)
-            }
-        }, 5_000)
+        // the booth is a camera and the engine a renderer: nobody there can save and reload, the next roll does
+        if (!isBooth() && !isEngine()) {
+            const checkUpdates = setInterval(async () => {
+                if (!navigator.onLine) {return}
+                const {status, value: newBuildInfo} = await Promises.tryCatch(loadBuildInfo())
+                if (status === "resolved" && newBuildInfo.uuid !== undefined && newBuildInfo.uuid !== buildInfo.uuid) {
+                    document.body.prepend(UpdateMessage({service}))
+                    console.warn("A new version is online.")
+                    clearInterval(checkUpdates)
+                }
+            }, 5_000)
+        }
     } else {
         console.debug("No production checks (build version & updates).")
     }
