@@ -846,3 +846,26 @@ describe("AudioBounce.renderFrames skip", () => {
         expect(audio.frames[1][499]).toBeCloseTo(1499 / 1_000_000, 9)
     })
 })
+
+describe("AudioBounce.releasedLength", () => {
+    const decayThenHold = (holdDb: number): Float32Array => {
+        const channel = new Float32Array(48_000 * 4)
+        channel.fill(0.9, 0, 48_000)
+        // falls 60 dB a second after the song ends at 1 s, then holds steady
+        for (let index = 48_000; index < channel.length; index++) {
+            channel[index] = Math.max(0.9 * 10 ** (-3 * (index - 48_000) / 48_000), 10 ** (holdDb / 20))
+        }
+        return channel
+    }
+    it("ends a release at 60 dB under the peak although a tone holds on above the -72 dBFS the engine waits for", () => {
+        const channel = decayThenHold(-70.9)
+        expect(AudioBounce.audibleLength([channel], 48_000, channel.length)).toBe(channel.length)
+        const length = AudioBounce.releasedLength([channel], 48_000, channel.length)
+        expect(length / 48_000).toBeCloseTo(2, 1)
+    })
+    it("keeps the whole song however quiet its last bars", () => {
+        const channel = new Float32Array(48_000)
+        channel[0] = 1
+        expect(AudioBounce.releasedLength([channel], 24_000, channel.length)).toBe(24_000)
+    })
+})

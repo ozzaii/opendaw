@@ -7,7 +7,7 @@ import {int, Option, UUID} from "@opendaw/lib-std"
 import {AudioData, PPQN, ppqn, TimeBase, WavFile} from "@opendaw/lib-dsp"
 import {BoxGraph} from "@opendaw/lib-box"
 import {ProjectSkeleton} from "@opendaw/studio-adapters"
-import {MixdownSection, Project, StudioPreferences, YService} from "@opendaw/studio-core"
+import {AudioBounce, MixdownSection, Project, StudioPreferences, YService} from "@opendaw/studio-core"
 import {ScriptHostProtocol} from "@opendaw/studio-scripting"
 import {StudioService} from "@/service/StudioService"
 import {ScriptAnswers} from "@/service/ScriptAnswers"
@@ -112,23 +112,15 @@ const render = async (service: StudioService, bytes: ArrayBufferLike, sampleRate
     const failed = loads.flatMap(load => load.status === "rejected" ? [String(load.reason?.message ?? load.reason)] : [])
     if (failed.length > 0) {throw new Error(`Some sounds of the song did not load, so the render would be missing them: ${failed.join("; ")}`)}
     // the live AudioContext keeps running: an offline render is a worker of its own
-    return ScriptAnswers.renderMixdown(service, bytes, sampleRate, {section})
-}
-// 16-bit stereo WAV, a quarter of the float file, for a phone's data
-const pcm16 = ({sampleRate, frames, numberOfFrames}: AudioData): Uint8Array => {
-    const channels = frames.length, data = numberOfFrames * channels * 2
-    const view = new DataView(new ArrayBuffer(44 + data))
-    const text = (at: int, word: string) => [...word].forEach((char, index) => view.setUint8(at + index, char.charCodeAt(0)))
-    text(0, "RIFF"); view.setUint32(4, 36 + data, true); text(8, "WAVE"); text(12, "fmt ")
-    view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, channels, true)
-    view.setUint32(24, sampleRate, true); view.setUint32(28, sampleRate * channels * 2, true)
-    view.setUint16(32, channels * 2, true); view.setUint16(34, 16, true); text(36, "data"); view.setUint32(40, data, true)
-    for (let index = 0, at = 44; index < numberOfFrames; index++) {
-        for (let channel = 0; channel < channels; channel++, at += 2) {
-            view.setInt16(at, Math.round(Math.max(-1, Math.min(1, frames[channel][index])) * 32767), true)
-        }
-    }
-    return new Uint8Array(view.buffer)
+    const audio = await ScriptAnswers.renderMixdown(service, bytes, sampleRate, {section})
+    if (!section.tail) {return audio}
+    // The engine's tail only stops under -72 dBFS: on 6 Nov a tone held at -70.9 ran a 76.8 s song to its 30 s cap.
+    const {bpm} = ProjectSkeleton.findMandatoryBoxes(boxGraph).timelineBox
+    const song = Math.round(PPQN.pulsesToSeconds(section.end - section.start, bpm.getValue()) * sampleRate)
+    const length = AudioBounce.releasedLength(audio.frames, Math.min(song, audio.numberOfFrames), audio.numberOfFrames)
+    const released = AudioData.create(sampleRate, length, audio.frames.length)
+    audio.frames.forEach((channel, index) => released.frames[index].set(channel.subarray(0, length)))
+    return released
 }
 // shortcut: polled (20 ms, 2 s at most); a store answer that waits for the room's update if the poll ever shows
 const reached = async (before: int): Promise<void> => {
@@ -188,7 +180,8 @@ const methods: Record<string, (service: StudioService, input: any, turn: string)
         if (song === null) {throw noSong()}
         const {version} = await answerOf("version")
         const audio = await render(service, ProjectSkeleton.encode(song.project.boxGraph), 48_000)
-        await post(`bounce?version=${version}`, pcm16(audio) as BodyInit)
+        // floats: what the mix holds above 0 dBFS reaches the store's encoder whole, and the store sets the level (`bounce.mjs`)
+        await post(`bounce?version=${version}`, WavFile.encodeFloats(audio))
         return {version}
     }
 }

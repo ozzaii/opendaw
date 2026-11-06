@@ -144,6 +144,12 @@ export namespace AudioBounce {
         return minLength
     }
 
+    // A release is over 60 dB under the mix's own peak (RT60), so a voice holding steady at the bottom is not a release.
+    export const releasedLength = (frames: ReadonlyArray<Float32Array>, minLength: int, length: int): int => {
+        const peak = frames.reduce((max, channel) => channel.reduce((most, sample) => Math.max(most, Math.abs(sample)), max), 0)
+        return audibleLength(frames, minLength, length, peak * dbToGain(-60.0))
+    }
+
     // Greedy: each span takes the first lane that is free at its start.
     export const assignLanes = (spans: ReadonlyArray<{ start: ppqn, end: ppqn }>): ReadonlyArray<int> => {
         const laneEnds: Array<ppqn> = []

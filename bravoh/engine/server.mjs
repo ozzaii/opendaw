@@ -11,11 +11,10 @@ import {UUID} from "@opendaw/lib-std"
 import {decode, encode} from "../runtime/wire.mjs"
 import {Song} from "./song.mjs"
 import {factsOf} from "./facts.mjs"
+import {toM4a} from "./bounce.mjs"
 import {openRoom, startRooms} from "./rooms.mjs"
 import {extname, normalize} from "node:path"
 import {fileURLToPath} from "node:url"
-import {execFile} from "node:child_process"
-import {tmpdir} from "node:os"
 import {rm} from "node:fs/promises"
 const TOKEN = process.env.ENGINE_TOKEN ?? ""
 if (TOKEN.length < 32) throw new Error("ENGINE_TOKEN must be at least 32 characters")
@@ -39,22 +38,6 @@ const serveStatic = async (path, response) => {
   if (!bytes) return send(response, 404, {why: "no such file"})
   response.writeHead(200, {"content-type": TYPES[extname(file) || ".html"] ?? "application/octet-stream", "cross-origin-opener-policy": "same-origin", "cross-origin-embedder-policy": "require-corp", "cross-origin-resource-policy": "same-origin"})
   response.end(bytes)
-}
-// THE BOUNCE THE WAY THE PLATFORM PLAYS IT: AAC in an M4A, moov first, ~1/12 of the 16-bit WAV (a 64-bar song was
-// 19 MB and took a phone 18-40 s to fetch, 11-04). iOS, Safari, Chrome and the app shells decode it natively.
-// The WAV goes out when ffmpeg cannot run (a dev machine without it): slower, never silent.
-const toM4a = async wav => {
-  const base = join(tmpdir(), `bounce-${randomUUID()}`)
-  try {
-    await writeFile(`${base}.wav`, wav)
-    await new Promise((done, fail) => execFile("ffmpeg", ["-v", "error", "-y", "-i", `${base}.wav`, "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", `${base}.m4a`], {timeout: 120_000}, error => error ? fail(error) : done()))
-    return {bytes: await readFile(`${base}.m4a`), type: "audio/mp4"}
-  } catch (error) {
-    console.warn("[engine] the bounce stays WAV:", String(error?.message ?? error))
-    return {bytes: wav, type: "audio/wav"}
-  } finally {
-    await rm(`${base}.wav`, {force: true}).catch(() => {}); await rm(`${base}.m4a`, {force: true}).catch(() => {})
-  }
 }
 const queues = new Map()
 // One song's calls run one after another, so two programs never interleave on one graph.
