@@ -4,7 +4,7 @@
 // The store (bravoh/engine/server.mjs) keeps the song, its undo marks, the renders and the bounce; this page saves
 // nothing itself: its edits reach the store through the room. It never writes UI state boxes into the song.
 import {int, Option, UUID} from "@opendaw/lib-std"
-import {AudioData, ppqn, WavFile} from "@opendaw/lib-dsp"
+import {AudioData, PPQN, ppqn, TimeBase, WavFile} from "@opendaw/lib-dsp"
 import {BoxGraph} from "@opendaw/lib-box"
 import {ProjectSkeleton} from "@opendaw/studio-adapters"
 import {MixdownSection, Project, StudioPreferences, YService} from "@opendaw/studio-core"
@@ -76,12 +76,17 @@ const noSong = () => new Error("There is no song in the booth yet: start one wit
 // What a render covers, as the studio's own mixdown sections (MixdownSection.collect) have it: the loop area when it is
 // on, exactly (a phrase), else the whole song with its tail.
 const sectionOf = (graph: BoxGraph): MixdownSection => {
-    const {loopArea} = ProjectSkeleton.findMandatoryBoxes(graph).timelineBox
+    const {loopArea, bpm} = ProjectSkeleton.findMandatoryBoxes(graph).timelineBox
     if (loopArea.enabled.getValue() && loopArea.to.getValue() > loopArea.from.getValue()) {
         return {type: "loop", key: "loop", label: "Loop Area", start: loopArea.from.getValue(), end: loopArea.to.getValue(), passes: 1, tail: false}
     }
+    // A no-sync region (a stem with no tempo) keeps its length in SECONDS, as the region's adapter converts it: read as
+    // pulses, ten 57 s stems ended the song at 0.03 s and the bounce was the 30 s tail alone (6 Nov).
+    // shortcut: one tempo for the song, as the facts say it; a tempo track would need the project's tempo map here.
+    const lengthOf = (box: any): ppqn => box.timeBase?.getValue?.() === TimeBase.Seconds
+        ? PPQN.secondsToPulses(box.duration.getValue(), bpm.getValue()) : (box.duration?.getValue?.() ?? 0)
     const end = graph.boxes().filter(box => box.name.endsWith("RegionBox"))
-        .reduce((last: ppqn, box: any) => Math.max(last, (box.position?.getValue?.() ?? 0) + (box.duration?.getValue?.() ?? 0)), 0)
+        .reduce((last: ppqn, box: any) => Math.max(last, (box.position?.getValue?.() ?? 0) + lengthOf(box)), 0)
     return {type: "song", key: "song", label: "Entire song", start: 0, end, passes: 1, tail: true}
 }
 // A sample or soundfont that does not load plays as silence in the engine, so a render waits for each and refuses
