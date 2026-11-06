@@ -232,7 +232,11 @@ export namespace Regions {
             const playback = isDefined(props?.playback) ? AudioContents.validatePlayback(props.playback) : AudioContents.defaultPlayback(validated)
             const projectBpm = context.skeleton.mandatoryBoxes.timelineBox.bpm.getValue()
             const position = Guard.int32("any", props?.position ?? 0, "position")
-            const duration = Guard.float32("positive", props?.duration ?? AudioContents.defaultDuration(validated, playback, projectBpm), "duration")
+            const asked = Guard.float32("positive", props?.duration ?? AudioContents.defaultDuration(validated, playback, projectBpm), "duration")
+            // A no-sync region is in seconds and sounds only while its sample does. Longer is nothing but a timeline that
+            // lies: `duration: 61440` (pulses, by the API's other unit) on a 46 s take was a song of 20,992 bars and a
+            // render no machine finishes (6 Nov). The song ends where its sound ends.
+            const duration = playback === "no-sync" ? Math.min(asked, validated.duration) : asked
             const timeBase = playback === "no-sync" ? TimeBase.Seconds : TimeBase.Musical
             assertNoOverlap(context, trackBox, position, duration, timeBase)
             const playMode = AudioContents.createPlayMode(context, playback, duration, validated.duration, {

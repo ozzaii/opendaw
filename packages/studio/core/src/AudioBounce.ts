@@ -33,6 +33,9 @@ import {ProjectSignals} from "./project/ProjectSignals"
 import {RenderQuantum} from "./RenderQuantum"
 import {Workers} from "./Workers"
 
+const MaxReleaseSeconds = 6.0
+const ReleaseFadeSeconds = 1.5
+
 export namespace AudioBounce {
     export type Tap = "pre-fx" | "pre-fader" | "post-fader"
     export type Options = { tap: Tap, tail: boolean, merge: boolean, loop: boolean }
@@ -148,6 +151,23 @@ export namespace AudioBounce {
     export const releasedLength = (frames: ReadonlyArray<Float32Array>, minLength: int, length: int): int => {
         const peak = frames.reduce((max, channel) => channel.reduce((most, sample) => Math.max(most, Math.abs(sample)), max), 0)
         return audibleLength(frames, minLength, length, peak * dbToGain(-60.0))
+    }
+
+    // The file ends with the song's release and never long after its last bar: a reverb still at -20 dB there ran
+    // the file to the engine's 30 s cap (6 Nov: 64 bars of 109.7 s played 139.7 s), and the phone loops the file whole.
+    export const withRelease = (audio: AudioData, song: int): AudioData => {
+        const {sampleRate, numberOfFrames} = audio
+        const most = Math.min(numberOfFrames, song + Math.round(MaxReleaseSeconds * sampleRate))
+        const length = releasedLength(audio.frames, Math.min(song, most), most)
+        const released = AudioData.create(sampleRate, length, audio.frames.length)
+        audio.frames.forEach((channel, index) => released.frames[index].set(channel.subarray(0, length)))
+        const cut = most < numberOfFrames && length === most
+        const fade = cut ? Math.min(length - song, Math.round(ReleaseFadeSeconds * sampleRate)) : 0
+        for (let index = 1; index <= fade; index++) {
+            const gain = (index - 1) / fade
+            released.frames.forEach(channel => channel[length - index] *= gain)
+        }
+        return released
     }
 
     // Greedy: each span takes the first lane that is free at its start.

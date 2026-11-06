@@ -3,6 +3,21 @@ import {Interpolation, PPQN} from "@opendaw/lib-dsp"
 import {TransientPlayMode} from "@opendaw/studio-enums"
 import {createFixture, sample} from "./Fixture"
 
+describe("a no-sync region", () => {
+    it("ends where its sample ends, whatever unit the length came in", () => {
+        const {project} = createFixture()
+        const track = project.addInstrumentUnit("Tape", {label: "Lead"}).audioTracks[0]
+        expect(track.addRegion(sample("Take", 46.46), {duration: 61440}).duration).toBeCloseTo(46.46, 2)
+        expect(track.addRegion(sample("Trim", 46.46), {duration: 8}).duration).toBe(8)
+        expect(track.addRegion(sample("Whole", 46.46)).duration).toBeCloseTo(46.46, 2)
+    })
+    it("leaves a tempo region's length alone: it is in pulses and may loop", () => {
+        const {project} = createFixture()
+        const track = project.addInstrumentUnit("Tape", {label: "Loop"}).audioTracks[0]
+        expect(track.addRegion(sample("Loop", 2, 120), {playback: "pitch", duration: PPQN.Bar * 8}).duration).toBe(PPQN.Bar * 8)
+    })
+})
+
 describe("Timeline", () => {
     it("creates note regions with defaults and events", () => {
         const {project} = createFixture()

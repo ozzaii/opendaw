@@ -869,3 +869,29 @@ describe("AudioBounce.releasedLength", () => {
         expect(AudioBounce.releasedLength([channel], 24_000, channel.length)).toBe(24_000)
     })
 })
+
+describe("AudioBounce.withRelease", () => {
+    const rate = 48_000
+    const song = rate
+    const ringing = (seconds: number): AudioData => {
+        const audio = AudioData.create(rate, rate * seconds, 1)
+        audio.frames[0].fill(0.1)
+        return audio
+    }
+    it("ends a release that rings on at 6 s past the last bar, faded out", () => {
+        const released = AudioBounce.withRelease(ringing(31), song)
+        expect(released.numberOfFrames).toBe(song + 6 * rate)
+        expect(released.frames[0][released.numberOfFrames - 1]).toBe(0)
+        expect(released.frames[0][song + 4 * rate]).toBeCloseTo(0.1, 5)
+    })
+    it("leaves a release that ends by itself as it is", () => {
+        const audio = ringing(3)
+        audio.frames[0].fill(0, 2 * rate)
+        const released = AudioBounce.withRelease(audio, song)
+        expect(released.numberOfFrames).toBe(2 * rate)
+        expect(released.frames[0][released.numberOfFrames - 1]).toBeCloseTo(0.1, 5)
+    })
+    it("never cuts the song", () => {
+        expect(AudioBounce.withRelease(ringing(1), song).numberOfFrames).toBe(song)
+    })
+})

@@ -117,10 +117,7 @@ const render = async (service: StudioService, bytes: ArrayBufferLike, sampleRate
     // The engine's tail only stops under -72 dBFS: on 6 Nov a tone held at -70.9 ran a 76.8 s song to its 30 s cap.
     const {bpm} = ProjectSkeleton.findMandatoryBoxes(boxGraph).timelineBox
     const song = Math.round(PPQN.pulsesToSeconds(section.end - section.start, bpm.getValue()) * sampleRate)
-    const length = AudioBounce.releasedLength(audio.frames, Math.min(song, audio.numberOfFrames), audio.numberOfFrames)
-    const released = AudioData.create(sampleRate, length, audio.frames.length)
-    audio.frames.forEach((channel, index) => released.frames[index].set(channel.subarray(0, length)))
-    return released
+    return AudioBounce.withRelease(audio, song)
 }
 // shortcut: polled (20 ms, 2 s at most); a store answer that waits for the room's update if the poll ever shows
 const reached = async (before: int): Promise<void> => {
