@@ -262,7 +262,7 @@ export const server = createServer(async (request, response) => {
     }
     if (method === "start") return send(response, 200, await serial(key, async () => (await songOf(key)).start(String(input.name ?? "").slice(0, 200))))
     if (method === "mark") return send(response, 200, await serial(key, async () => (await songOf(key)).mark(String(input.turn ?? ""))))
-    if (method === "undo") return send(response, 200, await serial(key, async () => (await songOf(key)).undo(Number(input.turns ?? 1))))
+    if (method === "undo") return send(response, 200, await serial(key, async () => (await songOf(key)).undo(Number(input.turns ?? 1), Array.isArray(input.from) ? input.from : undefined)))
     const run = methods[method]
     if (!run) return send(response, 404, {why: "no such method"})
     const answer = await serial(key, async () => run(await songOf(key), decode(input.wire ?? "{}"), String(input.turn ?? ""), key))

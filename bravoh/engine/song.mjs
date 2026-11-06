@@ -95,8 +95,11 @@ export class Song {
     return {applied: tasks.length}
   }
   // The last `turns` turns that wrote, taken back: the song as it was before the oldest of them, in a new room.
-  async undo(turns = 1) {
-    const taken = this.#history.splice(Math.max(0, this.#history.length - Math.max(1, turns)))
+  // `from` ("Revert to here"): the turns those ones stamp, and every turn after the first of them. It is the store that
+  // knows which turns wrote, so the count is worked out here: the caller knows only the artist's message ids.
+  async undo(turns = 1, from) {
+    const start = from ? this.#history.findIndex(({turn}) => from.includes(turn)) : Math.max(0, this.#history.length - Math.max(1, turns))
+    const taken = start < 0 ? [] : this.#history.splice(start)
     if (taken.length === 0) return {undone: 0, turns: 0}
     const back = taken[0]
     const bytes = back.file ? await readFile(join(this.#snapshots, back.file)) : null
