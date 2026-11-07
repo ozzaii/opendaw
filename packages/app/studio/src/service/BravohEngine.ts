@@ -12,7 +12,7 @@ import {ScriptHostProtocol} from "@opendaw/studio-scripting"
 import {StudioService} from "@/service/StudioService"
 import {ScriptAnswers} from "@/service/ScriptAnswers"
 import {attachSongSamples, attachSongSoundfonts} from "@/service/BravohBooth"
-import {renderLanes, Superseded} from "@/service/BravohRenders"
+import {renderLanes, RenderWatch, Superseded} from "@/service/BravohRenders"
 
 // Read once, at the first line of main.ts: the app's router rewrites the location while it boots.
 const asked = new URLSearchParams(location.hash.slice(1))
@@ -93,29 +93,32 @@ const sectionOf = (graph: BoxGraph): MixdownSection => {
 // A sample or soundfont that does not load plays as silence in the engine, so a render waits for each and refuses
 // when one fails: a program must never hear a song with a hole in it as the song.
 type Loader = { state: { type: string, reason?: string }, subscribe: (observer: (state: any) => void) => { terminate(): void } }
-const loaded = (what: string, loader: Loader): Promise<void> => new Promise((resolve, reject) => {
-    if (loader.state.type === "error") {return reject(new Error(`${what}: ${loader.state.reason}`))}
-    const subscription = loader.subscribe(state => {
-        if (state.type !== "loaded" && state.type !== "error") {return}
-        queueMicrotask(() => subscription?.terminate())
-        state.type === "loaded" ? resolve() : reject(new Error(`${what}: ${state.reason}`))
-    })
-})
-const render = async (service: StudioService, bytes: ArrayBufferLike, sampleRate: int, took: Record<string, number>): Promise<AudioData> => {
+const loaded = (what: string, loader: Loader, watch: RenderWatch): Promise<void> => {
+    const answered = watch.wait(what)
+    return new Promise<void>((resolve, reject) => {
+        if (loader.state.type === "error") {return reject(new Error(`${what}: ${loader.state.reason}`))}
+        const subscription = loader.subscribe(state => {
+            if (state.type !== "loaded" && state.type !== "error") {return}
+            queueMicrotask(() => subscription?.terminate())
+            state.type === "loaded" ? resolve() : reject(new Error(`${what}: ${state.reason}`))
+        })
+    }).finally(answered)
+}
+const render = async (service: StudioService, bytes: ArrayBufferLike, sampleRate: int, took: Record<string, number>, watch: RenderWatch): Promise<AudioData> => {
     const began = performance.now()
     const {boxGraph} = ProjectSkeleton.decode(bytes as ArrayBuffer)
     const section = sectionOf(boxGraph)
     if (section.end <= section.start) {throw new Error("The song has no regions to render.")}
     const loads = await Promise.allSettled(boxGraph.boxes().flatMap(box => {
         const uuid = box.address.uuid, id = UUID.toString(uuid)
-        return box.name === "AudioFileBox" ? [loaded(`sample ${id}`, service.sampleManager.getOrCreate(uuid) as any)]
-            : box.name === "SoundfontFileBox" ? [loaded(`soundfont ${id}`, service.soundfontManager.getOrCreate(uuid) as any)] : []
+        return box.name === "AudioFileBox" ? [loaded(`sample ${id}`, service.sampleManager.getOrCreate(uuid) as any, watch)]
+            : box.name === "SoundfontFileBox" ? [loaded(`soundfont ${id}`, service.soundfontManager.getOrCreate(uuid) as any, watch)] : []
     }))
     const failed = loads.flatMap(load => load.status === "rejected" ? [String(load.reason?.message ?? load.reason)] : [])
     if (failed.length > 0) {throw new Error(`Some sounds of the song did not load, so the render would be missing them: ${failed.join("; ")}`)}
     took.soundsMs = Math.round(performance.now() - began)
     // the live AudioContext keeps running: an offline render is a worker of its own
-    const audio = await ScriptAnswers.renderMixdown(service, bytes, sampleRate, {section})
+    const audio = await ScriptAnswers.renderMixdown(service, bytes, sampleRate, {section, abortSignal: watch.signal, listeners: {wait: watch.wait}})
     took.renderMs = Math.round(performance.now() - began) - took.soundsMs
     if (!section.tail) {return audio}
     // The engine's tail only stops under -72 dBFS: on 6 Nov a tone held at -70.9 ran a 76.8 s song to its 30 s cap.
@@ -148,14 +151,26 @@ const ARTIST_TURN = "artist"
 const lanes = renderLanes({
     version: async () => (await answerOf("version")).version,
     stored: async id => (await store(`renders/${id}?peek=1`)).ok,
-    note: what => void post(`renders-note`, JSON.stringify({[what]: 1})).catch(() => {})
+    note: what => void post(`renders-note`, JSON.stringify({[what]: 1})).catch(() => {}),
+    stuck: error => {
+        void post(`renders-note`, JSON.stringify({stuck: error.message})).catch(() => {})
+        // What it waited for belongs to this page (a loader, a storage lock), and the next render would wait for it too. A
+        // render that only ran long is gone with its worker. The moment is for the failed call's answer to leave; the page
+        // comes back joined to its room, and the token left the address on boot.
+        if (error.waited.length > 0) {
+            setTimeout(() => {
+                location.hash = `engine=${key}&token=${token}`
+                location.reload()
+            }, 500)
+        }
+    }
 })
 /** This project rendered once, for everyone who asks while it runs or while the store holds it; its name in the store. */
 const renderOnce = async (service: StudioService, bytes: ArrayBufferLike, sampleRate: int, artist: boolean, version: int): Promise<string> => {
     const id = `${UUID.toString(await UUID.sha256(bytes as ArrayBuffer))}-${sampleRate}`
-    await lanes.once(id, version, artist, async () => {
+    await lanes.once(id, version, artist, async watch => {
         const took: Record<string, number> = {}
-        const audio = await render(service, bytes, sampleRate, took)
+        const audio = await render(service, bytes, sampleRate, took, watch)
         const encoding = performance.now()
         const wav = WavFile.encodeFloats(audio)
         took.wavMs = Math.round(performance.now() - encoding)

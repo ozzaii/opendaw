@@ -46,7 +46,15 @@ let engineWorker: Option<{url: string, attachment: Record<string, unknown>}> = O
 export type OfflineEngineListeners = {
     wclapParams?: (uuid: string, params: ReadonlyArray<WclapParamInfo>) => void
     wclapStatus?: (uuid: string, status: WclapStatus) => void
+    /** What the render now waits for, by name; it calls what this returns when the answer came. */
+    wait?: (what: string) => () => void
 }
+
+const unlessAborted = <T>(work: Promise<T>, abortSignal?: AbortSignal): Promise<T> => !isDefined(abortSignal) ? work
+    : Promise.race([work, new Promise<never>((_, reject) => {
+        if (abortSignal.aborted) {return reject(Errors.AbortError)}
+        abortSignal.addEventListener("abort", () => reject(Errors.AbortError), {once: true})
+    })])
 
 export class OfflineEngineRenderer {
     // `attachment` travels to the worker as `config.variant` (the wasm artifacts base url).
@@ -67,6 +75,10 @@ export class OfflineEngineRenderer {
         if (numStems === 0) {return panic("Nothing to export")}
         if (isDefined(abortSignal) && abortSignal.aborted) {return Promise.reject(Errors.AbortError)}
 
+        const waited = <T>(what: string, work: Promise<T>): Promise<T> => {
+            const answered = listeners.wait?.(what)
+            return work.finally(() => answered?.())
+        }
         const numberOfChannels = numStems * 2
         const engine = engineWorker.unwrap("No engine worker installed (WasmEngine.install must run first)")
         const worker = new Worker(engine.url, {type: "module"})
@@ -99,7 +111,7 @@ export class OfflineEngineRenderer {
             log: (message: string): void => console.log("OFFLINE-ENGINE", message),
             error: (reason: unknown) => console.error("OFFLINE-ENGINE", reason),
             ready: (): void => {},
-            fetchAudio: (uuid: UUID.Bytes): Promise<AudioData> => new Promise((resolve, reject) => {
+            fetchAudio: (uuid: UUID.Bytes): Promise<AudioData> => waited(`sample ${UUID.toString(uuid)}`, new Promise((resolve, reject) => {
                 const handler = source.sampleManager.getOrCreate(uuid)
                 const subscription = handler.subscribe(state => {
                     if (state.type === "error") {
@@ -110,8 +122,8 @@ export class OfflineEngineRenderer {
                         subscription.terminate()
                     }
                 })
-            }),
-            fetchSoundfont: (uuid: UUID.Bytes): Promise<SoundFont2> => new Promise((resolve, reject) => {
+            })),
+            fetchSoundfont: (uuid: UUID.Bytes): Promise<SoundFont2> => waited(`soundfont ${UUID.toString(uuid)}`, new Promise((resolve, reject) => {
                 const handler = source.soundfontManager.getOrCreate(uuid)
                 const subscription = handler.subscribe(state => {
                     if (state.type === "error") {
@@ -122,13 +134,13 @@ export class OfflineEngineRenderer {
                         subscription.terminate()
                     }
                 })
-            }),
-            fetchNamWasm: async (): Promise<ArrayBuffer> => {
+            })),
+            fetchNamWasm: (): Promise<ArrayBuffer> => waited("the amp engine", (async () => {
                 const url = new URL("@opendaw/nam-wasm/nam.wasm", import.meta.url)
                 const response = await fetch(url)
                 return response.arrayBuffer()
-            },
-            fetchWclapBundle: (url: string): Promise<WclapBundle> => WclapBundles.fetch(url),
+            })()),
+            fetchWclapBundle: (url: string): Promise<WclapBundle> => waited(`plug-in ${url}`, WclapBundles.fetch(url)),
             wclapSend: (): void => {},
             wclapState: (): void => {},
             wclapParams: (uuid: string, params: ReadonlyArray<WclapParamInfo>): void => listeners.wclapParams?.(uuid, params),
@@ -241,7 +253,7 @@ export class OfflineEngineRenderer {
         const {promise: abortPromise, reject: rejectOnAbort} = Promise.withResolvers<never>()
         const onAbort = (): void => rejectOnAbort(Errors.AbortError)
         if (isDefined(abortSignal)) {abortSignal.addEventListener("abort", onAbort, {once: true})}
-        const result = await Promises.tryCatch(Promise.race([initialize(), abortPromise]))
+        const result = await Promises.tryCatch(Promise.race([waited("the engine to start", initialize()), abortPromise]))
         if (isDefined(abortSignal)) {abortSignal.removeEventListener("abort", onAbort)}
         if (result.status === "rejected") {
             terminator.terminate()
@@ -259,7 +271,8 @@ export class OfflineEngineRenderer {
             reader,
             engineStateIO,
             sampleRate,
-            numberOfChannels
+            numberOfChannels,
+            listeners
         )
     }
 
@@ -267,7 +280,8 @@ export class OfflineEngineRenderer {
                        optExportConfiguration: Option<ExportConfiguration>,
                        progress: DefaultObservableValue<number>,
                        abortSignal?: AbortSignal,
-                       sampleRate: int = 48_000
+                       sampleRate: int = 48_000,
+                       listeners: OfflineEngineListeners = {}
     ): Promise<AudioData> {
         const {timelineBox: {loopArea: {enabled}}, boxGraph} = source
         const wasEnabled = enabled.getValue()
@@ -283,7 +297,7 @@ export class OfflineEngineRenderer {
         })
         const maxDurationSeconds = source.tempoMap.intervalToSeconds(startPosition, endPosition) + 30
         const result = await Promises.tryCatch(
-            this.create(source, optExportConfiguration, sampleRate, abortSignal).then(renderer =>
+            this.create(source, optExportConfiguration, sampleRate, abortSignal, listeners).then(renderer =>
                 renderer.render({maxDurationSeconds}, startPosition, endPosition, progress, abortSignal)))
         boxGraph.beginTransaction()
         enabled.setValue(wasEnabled)
@@ -297,7 +311,8 @@ export class OfflineEngineRenderer {
                                section: MixdownSection,
                                progress: DefaultObservableValue<number>,
                                abortSignal?: AbortSignal,
-                               sampleRate: int = 48_000
+                               sampleRate: int = 48_000,
+                               listeners: OfflineEngineListeners = {}
     ): Promise<AudioData> {
         const {timelineBox: {loopArea, markerTrack}, boxGraph} = source
         const {start, end, passes, tail} = section
@@ -316,7 +331,7 @@ export class OfflineEngineRenderer {
         const seconds = source.tempoMap.intervalToSeconds(start, end)
         const numFrames = Math.round(seconds * sampleRate)
         const result = await Promises.tryCatch(
-            this.create(source, optExportConfiguration, sampleRate, abortSignal).then(renderer => tail
+            this.create(source, optExportConfiguration, sampleRate, abortSignal, listeners).then(renderer => tail
                 ? renderer.render({maxDurationSeconds: seconds + 30}, start, end, progress, abortSignal)
                 : renderer.#renderFrames(start, numFrames, passes, progress, abortSignal)))
         boxGraph.beginTransaction()
@@ -337,6 +352,7 @@ export class OfflineEngineRenderer {
     readonly #engineStateIO: ReturnType<typeof EngineStateSchema>
     readonly #sampleRate: int
     readonly #numberOfChannels: int
+    readonly #listeners: OfflineEngineListeners
 
     #totalFrames: int = 0
 
@@ -348,7 +364,8 @@ export class OfflineEngineRenderer {
         reader: SyncStream.Reader,
         engineStateIO: ReturnType<typeof EngineStateSchema>,
         sampleRate: int,
-        numberOfChannels: int
+        numberOfChannels: int,
+        listeners: OfflineEngineListeners
     ) {
         this.#worker = worker
         this.#protocol = protocol
@@ -358,6 +375,7 @@ export class OfflineEngineRenderer {
         this.#engineStateIO = engineStateIO
         this.#sampleRate = sampleRate
         this.#numberOfChannels = numberOfChannels
+        this.#listeners = listeners
     }
 
     get sampleRate(): int {return this.#sampleRate}
@@ -384,6 +402,16 @@ export class OfflineEngineRenderer {
         }
     }
 
+    // Until the engine holds every sound the song asked for, told by name (`OfflineEngineListeners.wait`), or an abort.
+    async #loaded(abortSignal?: AbortSignal): Promise<void> {
+        const answered = this.#listeners.wait?.("the song's sounds to reach the engine")
+        try {
+            await unlessAborted(this.waitForLoading(), abortSignal)
+        } finally {
+            answered?.()
+        }
+    }
+
     terminate(): void {
         this.#terminator.terminate()
         this.#worker.terminate()
@@ -405,16 +433,16 @@ export class OfflineEngineRenderer {
         const skipFrames = totalFrames - numFrames
         const audioData = AudioData.create(this.#sampleRate, numFrames, this.#numberOfChannels)
         const result = await Promises.tryCatch((async () => {
-            await this.waitForLoading()
+            await this.#loaded(abortSignal)
             this.setPosition(startPosition)
-            await this.play()
-            await this.waitForLoading()
+            await unlessAborted(this.play(), abortSignal)
+            await this.#loaded(abortSignal)
             let rendered = 0
             while (rendered < totalFrames) {
                 if (isDefined(abortSignal) && abortSignal.aborted) {return Promise.reject(Errors.AbortError)}
                 // chunks must be quantum multiples: a step discards the rest of its last quantum
                 const numSamples = Math.min(RenderQuantum * 375, totalFrames - rendered)
-                const channels = await this.step(numSamples)
+                const channels = await unlessAborted(this.step(numSamples), abortSignal)
                 const sourceOffset = Math.max(0, skipFrames - rendered)
                 if (sourceOffset < numSamples) {
                     for (let channelIndex = 0; channelIndex < this.#numberOfChannels; channelIndex++) {
@@ -460,12 +488,10 @@ export class OfflineEngineRenderer {
             reject(Errors.AbortError)
         }
         if (isDefined(abortSignal)) {abortSignal.addEventListener("abort", onAbort, {once: true})}
-        while (!await this.#engineCommands.queryLoadingComplete()) {
-            await Wait.timeSpan(TimeSpan.millis(100))
-        }
-        if (startPosition !== 0) {this.setPosition(startPosition)}
-        await this.play()
-        this.#protocol.render(config).then(channels => {
+        this.#loaded(abortSignal).then(async () => {
+            if (startPosition !== 0) {this.setPosition(startPosition)}
+            await unlessAborted(this.play(), abortSignal)
+            const channels = await this.#protocol.render(config)
             polling.terminate()
             if (isDefined(abortSignal)) {abortSignal.removeEventListener("abort", onAbort)}
             if (cancelled) {return}

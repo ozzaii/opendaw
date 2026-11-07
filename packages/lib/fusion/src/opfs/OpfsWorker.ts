@@ -13,6 +13,10 @@ export namespace OpfsWorker {
         Communicator.executor(messenger.channel("opfs"), new class implements OpfsProtocol {
             readonly #locks = new Map<string, Promise<void>>()
             readonly #holders = new Map<string, LockHolder>()
+            // Chromium drops the answer when a file handle is collected with createSyncAccessHandle still out, and the
+            // promise never settles, holding the path's lock with it. Measured 11-07 with forced GC on Chrome 157 (Linux)
+            // and Chrome for Testing (Mac): 84 calls a round wedged within 9 rounds, none in 50,400 calls with this held.
+            readonly #opening = new Set<FileSystemFileHandle>()
 
             async write(path: string, data: Uint8Array): Promise<void> {
                 await this.#acquireLock("write", path, async step => {
@@ -152,7 +156,12 @@ export namespace OpfsWorker {
                 step("get file handle")
                 const fileHandle = await folder.getFileHandle(asDefined(segments.at(-1)), options)
                 step("create sync access handle")
-                return await fileHandle.createSyncAccessHandle()
+                this.#opening.add(fileHandle)
+                try {
+                    return await fileHandle.createSyncAccessHandle()
+                } finally {
+                    this.#opening.delete(fileHandle)
+                }
             }
 
             async #resolveFolder(segments: ReadonlyArray<string>, step: Procedure<string>,
