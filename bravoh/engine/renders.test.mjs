@@ -6,7 +6,7 @@ import {tmpdir} from "node:os"
 import {join} from "node:path"
 import {execFileSync} from "node:child_process"
 import {readFileSync} from "node:fs"
-import {renderLanes, Superseded} from "../../packages/app/studio/src/service/BravohRenders.ts"
+import {renderLanes, RenderStuck, Superseded} from "../../packages/app/studio/src/service/BravohRenders.ts"
 
 const later = () => {
   let go
@@ -115,6 +115,44 @@ test("the artist joining a waiting render takes it ahead", async () => {
   artistHolds.go()
   await Promise.all([artistRenders, desk, later])
   assert.deepEqual(order, ["make", "artist", "later", "desk"])
+})
+
+test("a render whose sound never comes fails by name, frees its lane, and stops its work", async () => {
+  const stuck = []
+  const lanes = renderLanes({version: async () => 1, stored: async () => false, note: () => {}, stuck: error => stuck.push(error), stallMs: 20})
+  let signal
+  const hung = lanes.once("hung", 1, false, watch => {
+    signal = watch.signal
+    watch.wait("sample 5c829459")()
+    watch.wait("sample fb509fbd")
+    return new Promise(() => {})
+  })
+  const beside = lanes.once("beside", 1, false, async () => {})
+  await assert.rejects(hung, error => error instanceof RenderStuck && /waiting for sample fb509fbd/.test(error.message) && !/5c829459/.test(error.message))
+  assert.equal(signal.aborted, true)
+  await beside
+  await lanes.once("after", 1, false, async () => {})
+  await tick()
+  assert.deepEqual(stuck.map(error => error.waited), [["sample fb509fbd"]])
+})
+
+test("while what it waits for keeps arriving, a render is not stuck", async () => {
+  const lanes = renderLanes({version: async () => 1, stored: async () => false, note: () => {}, stallMs: 30})
+  await lanes.once("slow", 1, false, async watch => {
+    for (let at = 0; at < 6; at++) {
+      const answered = watch.wait(`sample ${at}`)
+      await new Promise(resolve => setTimeout(resolve, 15))
+      answered()
+    }
+  })
+})
+
+test("a render running past the whole clock fails too, naming no wait: its engine is what stopped", async () => {
+  const stuck = []
+  const lanes = renderLanes({version: async () => 1, stored: async () => false, note: () => {}, stuck: error => stuck.push(error), renderMs: 20})
+  await assert.rejects(lanes.once("long", 1, false, () => new Promise(() => {})), /still rendering/)
+  await tick()
+  assert.deepEqual(stuck.map(error => error.waited), [[]])
 })
 
 test("a failed render answers its readers and leaves the lane free", async () => {

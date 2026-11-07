@@ -243,7 +243,8 @@ export const server = createServer(async (request, response) => {
       return send(response, 200, {render: id})
     }
     if (method === "renders-note") {
-      const {took, ...spared} = JSON.parse((await body(request)).toString("utf8") || "{}")
+      const {took, stuck, ...spared} = JSON.parse((await body(request)).toString("utf8") || "{}")
+      if (stuck) console.log(JSON.stringify({event: "engine.stuck", key, why: String(stuck).slice(0, 2000)}))
       const count = countOf(key)
       for (const [what, by] of Object.entries(spared)) if (what in count) count[what] += Number(by) || 0
       if (took) {

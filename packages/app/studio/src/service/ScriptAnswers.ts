@@ -4,7 +4,7 @@ import {AudioData} from "@opendaw/lib-dsp"
 import {BoxIO, WclapDeviceBox} from "@opendaw/studio-boxes"
 import {AudioUnitType} from "@opendaw/studio-enums"
 import {AudioUnitFactory, InstrumentFactories, ProjectSkeleton, TrackType, WclapParamInfo, WclapParameterAdapters} from "@opendaw/studio-adapters"
-import {MixdownSection, OfflineEngineRenderer, Project, ProjectEnv, RenderQuantum, WclapStorage, Workers} from "@opendaw/studio-core"
+import {MixdownSection, OfflineEngineListeners, OfflineEngineRenderer, Project, ProjectEnv, RenderQuantum, WclapStorage, Workers} from "@opendaw/studio-core"
 import {NamModel, SoundfontFile, WclapParameterInfo, WclapPlugin} from "@opendaw/studio-scripting"
 import {WclapCatalog} from "@/opendaw-api"
 import {StudioService} from "@/service/StudioService"
@@ -26,15 +26,15 @@ export namespace ScriptAnswers {
     }
 
     // On a copy of its own, so the live project and its engine are never touched. Without a section, the whole song.
-    export const renderMixdown = async (env: ProjectEnv, buffer: ArrayBufferLike, sampleRate: int = 48_000, {section, progress, abortSignal}: {
-        section?: MixdownSection, progress?: DefaultObservableValue<number>, abortSignal?: AbortSignal
+    export const renderMixdown = async (env: ProjectEnv, buffer: ArrayBufferLike, sampleRate: int = 48_000, {section, progress, abortSignal, listeners}: {
+        section?: MixdownSection, progress?: DefaultObservableValue<number>, abortSignal?: AbortSignal, listeners?: OfflineEngineListeners
     } = {}): Promise<AudioData> => {
         const project = Project.load(env, buffer as ArrayBuffer)
         progress ??= new DefaultObservableValue(0.0)
         try {
             return await (section === undefined
-                ? OfflineEngineRenderer.start(project, Option.None, progress, abortSignal, sampleRate)
-                : OfflineEngineRenderer.renderSection(project, Option.None, section, progress, abortSignal, sampleRate))
+                ? OfflineEngineRenderer.start(project, Option.None, progress, abortSignal, sampleRate, listeners)
+                : OfflineEngineRenderer.renderSection(project, Option.None, section, progress, abortSignal, sampleRate, listeners))
         } finally {
             project.terminate()
         }
