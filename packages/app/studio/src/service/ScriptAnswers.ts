@@ -40,7 +40,7 @@ export namespace ScriptAnswers {
         }
     }
 
-    export type Stem = { name: string, kind: "lane" | "group" | "return" | "mix", of?: ReadonlyArray<string> }
+    export type Stem = { name: string, kind: "lane" | "group" | "return" | "mix", of?: ReadonlyArray<string>, inside?: ReadonlyArray<string> }
     export type Stems = { audio: AudioData, stems: ReadonlyArray<Stem>, muted: ReadonlyArray<string> }
     // ONE PASS, EVERY LANE: the engine's own stem export taps each unit after its fader inside the mixdown it runs anyway, delay
     // compensated to the master (crates/engine/src/lib.rs `stem_compensation`), so the graph that plays is the graph that is
@@ -63,6 +63,10 @@ export namespace ScriptAnswers {
                 return unit.box.mute.getValue() || (bus !== null && silenced(bus))
             }
             const heard = units.filter(unit => unit.isOutput || !silenced(unit))
+            const holders = (unit: typeof units[number]): ReadonlyArray<string> => {
+                const bus = busOf(unit)
+                return bus === null ? [] : [...holders(bus), label(bus)]
+            }
             const configuration: ExportConfiguration = {
                 stems: Object.fromEntries(heard.map(unit => [UUID.toString(unit.uuid), {
                     includeAudioEffects: true, includeSends: true, useInstrumentOutput: false, fileName: label(unit)
@@ -73,11 +77,11 @@ export namespace ScriptAnswers {
             return {
                 audio,
                 stems: heard.map(unit => unit.type === AudioUnitType.Bus && !unit.isOutput
-                    ? {name: label(unit), kind: "group", of: heard.filter(other => {
+                    ? {name: label(unit), kind: "group", inside: holders(unit), of: heard.filter(other => {
                         const bus = busOf(other)
                         return bus !== null && UUID.equals(bus.uuid, unit.uuid)
                     }).map(label)}
-                    : {name: label(unit), kind: unit.isOutput ? "mix" : unit.type === AudioUnitType.Aux ? "return" : "lane"}),
+                    : {name: label(unit), kind: unit.isOutput ? "mix" : unit.type === AudioUnitType.Aux ? "return" : "lane", inside: holders(unit)}),
                 muted: units.filter(unit => !unit.isOutput && silenced(unit)).map(label)
             }
         } finally {
