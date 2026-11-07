@@ -10,7 +10,7 @@ import {toM4a} from "./bounce.mjs"
 const dir = mkdtempSync(join(tmpdir(), "bounce-test-"))
 const floats = gainDb => {
   const file = join(dir, `in-${gainDb}.wav`)
-  execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "sine=f=997:d=3:r=48000", "-f", "lavfi", "-i", "anoisesrc=d=3:r=48000:a=0.4",
+  execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "sine=f=997:d=3:r=48000", "-f", "lavfi", "-i", "anoisesrc=d=3:r=48000:a=0.4:seed=1",
     "-filter_complex", `[0][1]amix=normalize=0,volume=${gainDb}dB`, "-ac", "2", "-c:a", "pcm_f32le", file])
   return readFileSync(file)
 }

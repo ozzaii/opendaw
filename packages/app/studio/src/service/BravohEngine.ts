@@ -12,6 +12,7 @@ import {ScriptHostProtocol} from "@opendaw/studio-scripting"
 import {StudioService} from "@/service/StudioService"
 import {ScriptAnswers} from "@/service/ScriptAnswers"
 import {attachSongSamples, attachSongSoundfonts} from "@/service/BravohBooth"
+import {renderLanes, Superseded} from "@/service/BravohRenders"
 
 // Read once, at the first line of main.ts: the app's router rewrites the location while it boots.
 const asked = new URLSearchParams(location.hash.slice(1))
@@ -100,7 +101,8 @@ const loaded = (what: string, loader: Loader): Promise<void> => new Promise((res
         state.type === "loaded" ? resolve() : reject(new Error(`${what}: ${state.reason}`))
     })
 })
-const render = async (service: StudioService, bytes: ArrayBufferLike, sampleRate: int): Promise<AudioData> => {
+const render = async (service: StudioService, bytes: ArrayBufferLike, sampleRate: int, took: Record<string, number>): Promise<AudioData> => {
+    const began = performance.now()
     const {boxGraph} = ProjectSkeleton.decode(bytes as ArrayBuffer)
     const section = sectionOf(boxGraph)
     if (section.end <= section.start) {throw new Error("The song has no regions to render.")}
@@ -111,8 +113,10 @@ const render = async (service: StudioService, bytes: ArrayBufferLike, sampleRate
     }))
     const failed = loads.flatMap(load => load.status === "rejected" ? [String(load.reason?.message ?? load.reason)] : [])
     if (failed.length > 0) {throw new Error(`Some sounds of the song did not load, so the render would be missing them: ${failed.join("; ")}`)}
+    took.soundsMs = Math.round(performance.now() - began)
     // the live AudioContext keeps running: an offline render is a worker of its own
     const audio = await ScriptAnswers.renderMixdown(service, bytes, sampleRate, {section})
+    took.renderMs = Math.round(performance.now() - began) - took.soundsMs
     if (!section.tail) {return audio}
     // The engine's tail only stops under -72 dBFS: on 6 Nov a tone held at -70.9 ran a 76.8 s song to its 30 s cap.
     const {bpm} = ProjectSkeleton.findMandatoryBoxes(boxGraph).timelineBox
@@ -139,6 +143,30 @@ const hostCalls = (service: StudioService): HostCalls => ({
     describeWclap: (url, clapId) => ScriptAnswers.describeWclap(service, url, clapId)
 })
 
+// A render the artist is waiting for that is not the bounce (a mute or a solo): the API says so where a program says its turn.
+const ARTIST_TURN = "artist"
+const lanes = renderLanes({
+    version: async () => (await answerOf("version")).version,
+    stored: async id => (await store(`renders/${id}?peek=1`)).ok,
+    note: what => void post(`renders-note`, JSON.stringify({[what]: 1})).catch(() => {})
+})
+/** This project rendered once, for everyone who asks while it runs or while the store holds it; its name in the store. */
+const renderOnce = async (service: StudioService, bytes: ArrayBufferLike, sampleRate: int, artist: boolean, version: int): Promise<string> => {
+    const id = `${UUID.toString(await UUID.sha256(bytes as ArrayBuffer))}-${sampleRate}`
+    await lanes.once(id, version, artist, async () => {
+        const took: Record<string, number> = {}
+        const audio = await render(service, bytes, sampleRate, took)
+        const encoding = performance.now()
+        const wav = WavFile.encodeFloats(audio)
+        took.wavMs = Math.round(performance.now() - encoding)
+        const posting = performance.now()
+        await post(`renders/${id}`, wav)
+        took.postMs = Math.round(performance.now() - posting)
+        await post(`renders-note`, JSON.stringify({took}))
+    })
+    return id
+}
+
 const methods: Record<string, (service: StudioService, input: any, turn: string) => Promise<unknown>> = {
     host: async (service, {call, args}) => {
         const calls = hostCalls(service)
@@ -163,40 +191,59 @@ const methods: Record<string, (service: StudioService, input: any, turn: string)
         if (!ScriptAnswers.applyUpdates(song.project, tasks, checksum)) {throw stale}
         if (tasks.length > 0) {await reached(version)}
         return {applied: tasks.length}
-    },
+    }
+}
+
+// RENDERS ANSWER BESIDE THE EDITS: each renders its own copy of the bytes it was given, so an `open` or an `apply` does not
+// wait a whole song behind one (11-07: a `studio_open` read 60.4 s). `edit` is the one line edits stand in, for what must read the room.
+const renders: Record<string, (service: StudioService, input: any, turn: string, edit: <T>(work: () => Promise<T>) => Promise<T>) => Promise<unknown>> = {
     // a candidate the program built, rendered and never applied; the frames wait in the store for the hand to fetch
-    mixdown: async (service, {project, sampleRate}) => {
-        const audio = await render(service, project, sampleRate ?? 48_000)
-        const id = UUID.toString(UUID.generate())
-        await post(`renders/${id}`, WavFile.encodeFloats(audio))
-        return {render: id}
-    },
-    // the song as the phone plays it, kept by the store for the version it was rendered from
-    bounce: async service => {
-        const song = await roomOf(service)
-        if (song === null) {throw noSong()}
+    mixdown: async (service, {project, sampleRate}, turn) => {
         const {version} = await answerOf("version")
-        const audio = await render(service, ProjectSkeleton.encode(song.project.boxGraph), 48_000)
-        // floats: what the mix holds above 0 dBFS reaches the store's encoder whole, and the store sets the level (`bounce.mjs`)
-        await post(`bounce?version=${version}`, WavFile.encodeFloats(audio))
-        return {version}
+        return {render: await renderOnce(service, project, sampleRate ?? 48_000, turn === ARTIST_TURN, version)}
+    },
+    // the song as the phone plays it, kept by the store for the version it was rendered from. A bounce overtaken while it
+    // waited renders the song as it now stands: the artist always has one coming.
+    bounce: async (service, _input, _turn, edit) => {
+        for (; ;) {
+            const {bytes, version} = await edit(async () => {
+                const song = await roomOf(service)
+                if (song === null) {throw noSong()}
+                return {version: (await answerOf("version")).version as int, bytes: ProjectSkeleton.encode(song.project.boxGraph)}
+            })
+            try {
+                const id = await renderOnce(service, bytes, 48_000, true, version)
+                // the store encodes the render it holds: what the mix holds above 0 dBFS reaches its encoder whole (`bounce.mjs`)
+                await post(`bounce?version=${version}&render=${id}`, "")
+                return {version}
+            } catch (error) {
+                if (!(error instanceof Superseded)) {throw error}
+            }
+        }
     }
 }
 
 const ready = Promise.withResolvers<void>()
 export const prepareEngine = (): void => {
     let queue: Promise<unknown> = Promise.resolve()
+    const edit = <T>(work: () => Promise<T>): Promise<T> => {
+        const next = queue.then(() => ready.promise).then(work)
+        queue = next.catch(() => {})
+        return next
+    }
     ;(window as any).engine = {
         ready: ready.promise,
-        // one call at a time: two programs never interleave on one song
         call: (method: string, wire: string, turn: string): Promise<string> => {
-            const next = queue.then(() => ready.promise).then(async () => {
+            const rendering = renders[method]
+            if (rendering !== undefined) {
+                return ready.promise.then(async () => encode(await rendering(service!, decode(wire), String(turn ?? ""), edit)))
+            }
+            // one edit at a time: two programs never interleave on one song
+            return edit(async () => {
                 const run = methods[method]
                 if (run === undefined) {throw new Error(`no such method: ${method}`)}
                 return encode(await run(service!, decode(wire), String(turn ?? "")))
             })
-            queue = next.catch(() => {})
-            return next
         }
     }
     history.replaceState(null, "", location.pathname) // the token never stays in the address

@@ -137,10 +137,34 @@ const body = request => new Promise((resolve, reject) => {
   request.on("end", () => resolve(Buffer.concat(parts)))
   request.on("error", reject)
 })
-// A PROGRAM'S MIXDOWN (32-bit float WAV), from the engine page to the hand that asked: read once, gone after 10 minutes.
+// A RENDER (32-bit float WAV), from the engine page to every reader of it, named by the project it rendered
+// (BravohRenders.ts). A song keeps its newest few, each until nobody has read it for half an hour: 83 MB for 128 bars.
 const renders = join(DATA, "renders")
 await rm(renders, {recursive: true, force: true})
 const renderFile = (key, id) => join(renders, `${key}.${id}.wav`)
+const RENDERS_KEPT = 4
+const RENDER_IDLE_MS = 30 * 60_000
+const keptRenders = new Map() // key -> Map(id -> its timer), oldest first
+const forget = (key, id) => {
+  clearTimeout(keptRenders.get(key)?.get(id))
+  keptRenders.get(key)?.delete(id)
+  rm(renderFile(key, id), {force: true}).catch(() => {})
+}
+const keepRender = (key, id) => {
+  const kept = keptRenders.get(key) ?? new Map()
+  keptRenders.set(key, kept)
+  clearTimeout(kept.get(id))
+  kept.delete(id)
+  kept.set(id, setTimeout(() => forget(key, id), RENDER_IDLE_MS).unref())
+  for (const oldest of [...kept.keys()].slice(0, Math.max(0, kept.size - RENDERS_KEPT))) forget(key, oldest)
+}
+// THE COUNT OF RENDERS, per song since this engine started: what proves every reader shares one. `rendered` is counted
+// where a render lands; the page says what it spared and what the last one spent (`renders-note`).
+const counts = new Map()
+const countOf = key => {
+  if (!counts.has(key)) counts.set(key, {rendered: 0, shared: 0, stored: 0, dropped: 0, encoded: 0})
+  return counts.get(key)
+}
 const send = (response, status, value) => {response.writeHead(status, {"content-type": "application/json"}); response.end(JSON.stringify(value))}
 export const server = createServer(async (request, response) => {
   const path = new URL(request.url, "http://engine").pathname
@@ -175,11 +199,14 @@ export const server = createServer(async (request, response) => {
       const {file} = song.bounced
       response.writeHead(200, {"content-type": file.type, "content-length": file.bytes.byteLength}); return response.end(file.bytes)
     }
+    if (request.method === "GET" && method === "renders-stats") return send(response, 200, countOf(key))
     if (request.method === "GET" && method === "renders") {
       const id = path.split("/")[5] ?? ""
-      const bytes = KEY.test(id) ? await readFile(renderFile(key, id)).catch(() => null) : null
+      if (!KEY.test(id) || !keptRenders.get(key)?.has(id)) return send(response, 404, {why: "no such render"})
+      keepRender(key, id)
+      if (new URL(request.url, "http://engine").searchParams.has("peek")) return send(response, 200, {kept: true})
+      const bytes = await readFile(renderFile(key, id)).catch(() => null)
       if (!bytes) return send(response, 404, {why: "no such render"})
-      await rm(renderFile(key, id), {force: true})
       response.writeHead(200, {"content-type": "audio/wav", "content-length": bytes.byteLength}); return response.end(bytes)
     }
     if (request.method === "GET" && method === "soundfonts") return send(response, 200, await soundfontIndex(key))
@@ -204,14 +231,36 @@ export const server = createServer(async (request, response) => {
       if (!KEY.test(id)) return send(response, 404, {why: "no such render"})
       await mkdir(renders, {recursive: true})
       await writeFile(renderFile(key, id), await body(request))
-      setTimeout(() => rm(renderFile(key, id), {force: true}).catch(() => {}), 10 * 60_000).unref()
+      keepRender(key, id)
+      countOf(key).rendered++
       return send(response, 200, {render: id})
     }
+    if (method === "renders-note") {
+      const {took, ...spared} = JSON.parse((await body(request)).toString("utf8") || "{}")
+      const count = countOf(key)
+      for (const [what, by] of Object.entries(spared)) if (what in count) count[what] += Number(by) || 0
+      if (took) {
+        count.last = took
+        console.log(JSON.stringify({event: "engine.render", key, ...took}))
+      }
+      return send(response, 200, {})
+    }
     if (method === "bounce") {
-      const version = Number(new URL(request.url, "http://engine").searchParams.get("version"))
+      const asked = new URL(request.url, "http://engine").searchParams
+      const version = Number(asked.get("version")), render = asked.get("render") ?? ""
       if (!Number.isInteger(version)) return send(response, 400, {why: "version"})
-      const file = await toM4a(await body(request))
+      if (!KEY.test(render) || !keptRenders.get(key)?.has(render)) return send(response, 404, {why: "no such render"})
       const song = await songOf(key)
+      // One encode per render: a later version with the same bytes, or a second reader, has the file already.
+      if (song.encoded?.render !== render) {
+        const began = Date.now()
+        const file = readFile(renderFile(key, render)).then(toM4a)
+        song.encoded = {render, file}
+        file.catch(() => {if (song.encoded?.file === file) song.encoded = null})
+        countOf(key).encoded++
+        file.then(() => console.log(JSON.stringify({event: "engine.encode", key, encodeMs: Date.now() - began})), () => {})
+      }
+      const file = await song.encoded.file
       // a newer bounce than the one kept wins; an older one that arrives late does not replace it
       if (!(song.bounced?.version > version)) song.bounced = {version, file}
       return send(response, 200, {version})
