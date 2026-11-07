@@ -11,6 +11,7 @@ export type MixdownSection = {
     end: ppqn
     passes: 1 | 2
     tail: boolean
+    tailSeconds?: number // past `end`, the most a tail may run; a reader that keeps less than the 30 s cap need not wait for it
 }
 
 export namespace MixdownSection {

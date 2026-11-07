@@ -53,6 +53,8 @@ pub struct EngineContext {
     phase_observers: Vec<Box<dyn FnMut(ProcessPhase)>>,
     labels: BTreeMap<NodeId, String>,
     owners: BTreeMap<NodeId, [u8; 16]>,
+    // Owners whose nodes never run (`skip_owner`). They stay in the graph: their latency still counts in `compensate`.
+    skipped: BTreeSet<[u8; 16]>,
     order_edges: BTreeSet<(NodeId, NodeId)>,
     edge_delays: BTreeMap<(NodeId, NodeId), u32>,
     compensation_dirty: bool,
@@ -74,6 +76,7 @@ impl EngineContext {
             phase_observers: Vec::new(),
             labels: BTreeMap::new(),
             owners: BTreeMap::new(),
+            skipped: BTreeSet::new(),
             order_edges: BTreeSet::new(),
             edge_delays: BTreeMap::new(),
             compensation_dirty: false,
@@ -91,6 +94,12 @@ impl EngineContext {
     /// The box (unit, bus, device, send) a node renders for, so the signal graph page can name it.
     pub fn set_owner(&mut self, id: NodeId, owner: [u8; 16]) {
         self.owners.insert(id, owner);
+    }
+
+    /// This box's nodes keep their place and their latency and never process again: their output buffers stay as they are.
+    pub fn skip_owner(&mut self, owner: [u8; 16]) {
+        self.skipped.insert(owner);
+        self.needs_sort = true;
     }
 
     /// Enable per-node render profiling with the given micros clock, (re)zeroing the accumulators.
@@ -335,6 +344,9 @@ impl EngineContext {
             self.sort.update(&self.graph);
             self.queue.clear();
             for &id in self.sort.sorted() {
+                if self.owners.get(&id).is_some_and(|owner| self.skipped.contains(owner)) {
+                    continue;
+                }
                 if let Some(processor) = self.processors.get(&id) {
                     self.queue.push((id, processor.clone()));
                 }
@@ -377,5 +389,37 @@ impl EngineContext {
 impl Default for EngineContext {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::rc::Rc;
+    use core::cell::{Cell, RefCell};
+
+    struct Counting(Rc<Cell<u32>>, crate::event_buffer::EventBuffer);
+    impl crate::event_receiver::EventReceiver for Counting {
+        fn event_input(&mut self) -> &mut crate::event_buffer::EventBuffer {
+            &mut self.1
+        }
+    }
+    impl Processor for Counting {
+        fn reset(&mut self) {}
+        fn process(&mut self, _info: &ProcessInfo) {
+            self.0.set(self.0.get() + 1);
+        }
+    }
+
+    #[test]
+    fn a_skipped_owner_never_processes_and_the_others_do() {
+        let mut context = EngineContext::new();
+        let (heard, muted) = (Rc::new(Cell::new(0)), Rc::new(Cell::new(0)));
+        context.register_processor(Rc::new(RefCell::new(Counting(heard.clone(), crate::event_buffer::EventBuffer::new()))));
+        let silent = context.register_processor(Rc::new(RefCell::new(Counting(muted.clone(), crate::event_buffer::EventBuffer::new()))));
+        context.set_owner(silent, [7; 16]);
+        context.skip_owner([7; 16]);
+        context.process(&ProcessInfo {blocks: &[]});
+        assert_eq!((heard.get(), muted.get()), (1, 0));
     }
 }

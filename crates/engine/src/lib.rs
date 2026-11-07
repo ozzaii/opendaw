@@ -3473,6 +3473,18 @@ pub extern "C" fn set_metering(enabled: i32) {
     engine_env::meter::set_metering(enabled != 0)
 }
 
+/// The 16-byte box uuid in the input scratch: its nodes never process (`EngineContext::skip_owner`).
+#[no_mangle]
+pub extern "C" fn skip_owner() {
+    unsafe {
+        if let Some(engine) = ENGINE.get().as_mut() {
+            let mut owner = [0u8; 16];
+            owner.copy_from_slice(core::slice::from_raw_parts(INPUT.get().as_ptr(), 16));
+            engine.context.skip_owner(owner);
+        }
+    }
+}
+
 /// Enable the metronome click.
 #[no_mangle]
 pub extern "C" fn set_metronome_enabled(enabled: i32) {

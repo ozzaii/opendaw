@@ -88,7 +88,7 @@ const sectionOf = (graph: BoxGraph): MixdownSection => {
         ? PPQN.secondsToPulses(box.duration.getValue(), bpm.getValue()) : (box.duration?.getValue?.() ?? 0)
     const end = graph.boxes().filter(box => box.name.endsWith("RegionBox"))
         .reduce((last: ppqn, box: any) => Math.max(last, (box.position?.getValue?.() ?? 0) + lengthOf(box)), 0)
-    return {type: "song", key: "song", label: "Entire song", start: 0, end, passes: 1, tail: true}
+    return {type: "song", key: "song", label: "Entire song", start: 0, end, passes: 1, tail: true, tailSeconds: AudioBounce.TailSeconds}
 }
 // A sample or soundfont that does not load plays as silence in the engine, so a render waits for each and refuses
 // when one fails: a program must never hear a song with a hole in it as the song.

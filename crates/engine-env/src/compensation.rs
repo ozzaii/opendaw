@@ -237,6 +237,20 @@ mod tests {
     }
 
     #[test]
+    fn a_skipped_owner_keeps_its_latency_in_the_graph() {
+        let mut context = EngineContext::new();
+        let latent = add(&mut context, 240);
+        let dry = add(&mut context, 0);
+        let sum = add(&mut context, 0);
+        context.register_edge(latent, sum);
+        context.register_edge(dry, sum);
+        context.set_owner(latent, [7; 16]);
+        context.skip_owner([7; 16]);
+        let graph = context.signal_graph();
+        assert_eq!(graph.nodes.iter().find(|node| node.id == sum).unwrap().arrival, 240);
+    }
+
+    #[test]
     fn removing_an_order_edge_forgets_its_kind() {
         let mut context = EngineContext::new();
         let source = add(&mut context, 0);

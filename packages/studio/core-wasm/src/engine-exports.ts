@@ -40,6 +40,7 @@ export type EngineExports = {
     engine_state_ptr: () => number
     engine_state_len: () => number
     set_metering: (enabled: number) => void
+    skip_owner: () => void
     set_metronome_enabled: (enabled: number) => void
     // Metronome preferences (TS preferences.settings.metronome), forwarded from the engine-preferences
     // channel: click gain in dB (<= 0), beat sub-division (1|2|4|8), monophonic (a new click fades the

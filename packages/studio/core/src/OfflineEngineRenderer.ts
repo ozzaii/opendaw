@@ -336,7 +336,7 @@ export class OfflineEngineRenderer {
         const result = await Promises.tryCatch(
             this.create(source, optExportConfiguration, sampleRate, abortSignal, listeners).then(renderer => tail
                 ? // 11-07: a solo of a lane that rests 10 s ended there, at 122 s of 228
-                renderer.render({minDurationSeconds: seconds, maxDurationSeconds: seconds + 30}, start, end, progress, abortSignal)
+                renderer.render({minDurationSeconds: seconds, maxDurationSeconds: seconds + (section.tailSeconds ?? 30)}, start, end, progress, abortSignal)
                 : renderer.#renderFrames(start, numFrames, passes, progress, abortSignal)))
         boxGraph.beginTransaction()
         loopArea.enabled.setValue(was.loopEnabled)

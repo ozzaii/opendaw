@@ -155,6 +155,9 @@ export namespace AudioBounce {
 
     // The file ends with the song's release and never long after its last bar: a reverb still at -20 dB there ran
     // the file to the engine's 30 s cap (6 Nov: 64 bars of 109.7 s played 139.7 s), and the phone loops the file whole.
+    // What `withRelease` can keep of a tail, plus enough to see that the render ran past it and fade the cut the same.
+    export const TailSeconds = MaxReleaseSeconds + 1
+
     export const withRelease = (audio: AudioData, song: int): AudioData => {
         const {sampleRate, numberOfFrames} = audio
         const most = Math.min(numberOfFrames, song + Math.round(MaxReleaseSeconds * sampleRate))

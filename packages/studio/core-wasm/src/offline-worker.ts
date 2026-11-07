@@ -52,6 +52,7 @@ import type {SoundFont2} from "soundfont2"
 import {EngineExports, settleCompensation, takeReportMessage} from "./engine-exports"
 import {createEngineMemory, ExtraDevice, loadEngineModules} from "./engine-modules"
 import {serializeUpdateTasks} from "./sync/serialize-update-tasks"
+import {silentOwners} from "./silent-units"
 import {WasmMidiDrain} from "./midi-drain"
 import {createWclapBridges, describeEngineTrap, drainResourceRequests, instantiateWasmEngine} from "./boot"
 // TYPE-ONLY: the module computes its peak decay and RMS window from the `sampleRate` global when it is
@@ -269,6 +270,13 @@ Communicator.executor<OfflineEngineProtocol>(
             }
             const quiet = config.quiet === true
             if (quiet) {engine.set_metering(0)}
+            // a stem export asks for lanes by name: only a mixdown can leave the muted ones out
+            if (quiet && stemPairs === 0) {
+                for (const owner of silentOwners(boxGraph)) {
+                    new Uint8Array(memory.buffer, engine.input_reserve(16), 16).set(owner)
+                    engine.skip_owner()
+                }
+            }
             const midi = new WasmMidiDrain()
             // Master telemetry over the SAME "engine-live-data" channel the realtime processor + TS
             // EngineProcessor use, so a live-stream consumer of an offline render (the video export's
