@@ -48,6 +48,8 @@ export type OfflineEngineListeners = {
     wclapStatus?: (uuid: string, status: WclapStatus) => void
     /** What the render now waits for, by name; it calls what this returns when the answer came. */
     wait?: (what: string) => () => void
+    /** Nobody reads this render's meters, analysers, live stream or progress: the worker skips them. Same samples. */
+    quiet?: boolean
 }
 
 const unlessAborted = <T>(work: Promise<T>, abortSignal?: AbortSignal): Promise<T> => !isDefined(abortSignal) ? work
@@ -247,7 +249,8 @@ export class OfflineEngineRenderer {
                 controlFlagsBuffer,
                 project: source.toArrayBuffer(),
                 exportConfiguration: optExportConfiguration.unwrapOrUndefined(),
-                variant: engine.attachment
+                variant: engine.attachment,
+                quiet: listeners.quiet
             })
         }
         const {promise: abortPromise, reject: rejectOnAbort} = Promise.withResolvers<never>()

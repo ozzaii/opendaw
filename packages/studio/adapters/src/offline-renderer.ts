@@ -8,6 +8,7 @@ export interface OfflineEngineInitializeConfig {
     project: ArrayBufferLike
     exportConfiguration?: ExportConfiguration
     variant?: Record<string, unknown> // extras for an alternative engine worker (e.g. the WASM artifacts url)
+    quiet?: boolean // nobody watches this render: no meters, no analysers, no live stream, no progress
 }
 
 export interface OfflineEngineRenderConfig {

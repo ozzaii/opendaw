@@ -47,6 +47,15 @@ impl Rms {
 
 use crate::telemetry::{broadcast_slot, BroadcastSlot};
 
+/// Off for a render nobody watches (`set_metering`): the slot stays as it is and the meter costs nothing. The audio
+/// path never reads a meter. 11-07: a 128-bar song spent 28% of its render here, on a ring per device output and strip.
+static mut METERING: bool = true;
+
+/// Called once, before the render starts, on the engine's one thread.
+pub fn set_metering(on: bool) {
+    unsafe { METERING = on }
+}
+
 pub struct Meter {
     slot: BroadcastSlot, // four floats: peak L/R + RMS L/R
     decay_base: f64, // PEAK_DECAY = exp(-1 / (sr * 0.25)); applied as decay_base^samples per block
@@ -81,6 +90,9 @@ impl Meter {
 
     /// Meter one rendered quantum: block peak vs the decayed held peak, plus the sliding RMS.
     pub fn process(&mut self, left: &[f32], right: &[f32]) {
+        if !unsafe { METERING } {
+            return;
+        }
         let mut max_left = 0.0f32;
         let mut max_right = 0.0f32;
         for index in 0..left.len().min(right.len()) {

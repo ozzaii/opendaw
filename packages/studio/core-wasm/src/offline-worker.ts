@@ -74,6 +74,7 @@ type EngineState = {
     readonly analyser: AudioAnalyser
     readonly peaks: PeakBroadcaster
     readonly broadcasts: ReadonlyArray<Terminable>
+    readonly quiet: boolean // nobody reads the master's telemetry or the transport state of this render
     totalFrames: int
     running: boolean
     // frames still to drop from the start: the settled delay compensation latency (-1 until settled)
@@ -99,7 +100,7 @@ const trimStart = (engineState: EngineState): int => {
 let state: Option<EngineState> = Option.None
 
 const renderQuantum = (engineState: EngineState, out: Float32Array[]): void => {
-    const {engine, memory, stems, midi, analyser, peaks, broadcaster} = engineState
+    const {engine, memory, stems, midi, analyser, peaks, broadcaster, quiet} = engineState
     const rendered = tryCatch(() => engine.render())
     if (rendered.status === "failure") {
         // A wasm trap is an anonymous RuntimeError; the panic handler left the real message in its buffer.
@@ -122,6 +123,7 @@ const renderQuantum = (engineState: EngineState, out: Float32Array[]): void => {
     if (out.length > 1) {
         out[1].set(new Float32Array(buffer, pointer + RenderQuantum * Float32Array.BYTES_PER_ELEMENT, RenderQuantum))
     }
+    if (quiet) {return}
     // Feed the master analyser + peak meter and flush the live stream every quantum, exactly like the realtime
     // processor, so an offline live-stream consumer (the video export's shadertoy) receives PEAKS (`iPeaks`,
     // zero without this and shaders scaling by it render black), SPECTRUM and WAVEFORM.
@@ -265,6 +267,8 @@ Communicator.executor<OfflineEngineProtocol>(
             if (engine.bind() !== 0) {
                 throw new Error("the project snapshot carries no TimelineBox")
             }
+            const quiet = config.quiet === true
+            if (quiet) {engine.set_metering(0)}
             const midi = new WasmMidiDrain()
             // Master telemetry over the SAME "engine-live-data" channel the realtime processor + TS
             // EngineProcessor use, so a live-stream consumer of an offline render (the video export's
@@ -348,7 +352,7 @@ Communicator.executor<OfflineEngineProtocol>(
             })
             enginePort.start()
             state = Option.wrap({
-                engine, memory, stateSender, pending, midi, broadcaster, analyser, peaks, broadcasts,
+                engine, memory, stateSender, pending, midi, broadcaster, analyser, peaks, broadcasts, quiet,
                 sampleRate: config.sampleRate,
                 // `stemPairs` already counts the metronome stem, so the channel count and the staging read
                 // below stay in step with what `set_stem_export` allocated.
@@ -431,8 +435,9 @@ Communicator.executor<OfflineEngineProtocol>(
                     chunks[channel].push(kept[channel].slice())
                 }
                 engine.totalFrames += kept[0].length
-                engine.stateSender.tryWrite()
-                if (engine.totalFrames - lastYield >= engine.sampleRate) {
+                if (!engine.quiet) {engine.stateSender.tryWrite()}
+                // A quiet render is stopped by ending its worker. The clamped timeout costs about 4 ms each time.
+                if (engine.totalFrames - lastYield >= engine.sampleRate * (engine.quiet ? 30 : 1)) {
                     lastYield = engine.totalFrames
                     await new Promise(resolve => setTimeout(resolve, 0))
                 }

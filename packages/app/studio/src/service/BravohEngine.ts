@@ -118,7 +118,7 @@ const render = async (service: StudioService, bytes: ArrayBufferLike, sampleRate
     if (failed.length > 0) {throw new Error(`Some sounds of the song did not load, so the render would be missing them: ${failed.join("; ")}`)}
     took.soundsMs = Math.round(performance.now() - began)
     // the live AudioContext keeps running: an offline render is a worker of its own
-    const audio = await ScriptAnswers.renderMixdown(service, bytes, sampleRate, {section, abortSignal: watch.signal, listeners: {wait: watch.wait}})
+    const audio = await ScriptAnswers.renderMixdown(service, bytes, sampleRate, {section, abortSignal: watch.signal, listeners: {wait: watch.wait, quiet: true}})
     took.renderMs = Math.round(performance.now() - began) - took.soundsMs
     if (!section.tail) {return audio}
     // The engine's tail only stops under -72 dBFS: on 6 Nov a tone held at -70.9 ran a 76.8 s song to its 30 s cap.

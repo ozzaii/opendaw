@@ -3467,6 +3467,12 @@ pub extern "C" fn override_device_field(uuid_ptr: u32, key: u32, kind: u32, bits
     unsafe { ENGINE.get().as_mut() }.map_or(0, |engine| engine.override_device_field(uuid, key as u16, kind, bits) as u32)
 }
 
+/// Whether meters run. An offline render with no one watching turns them off before it starts (`quiet`).
+#[no_mangle]
+pub extern "C" fn set_metering(enabled: i32) {
+    engine_env::meter::set_metering(enabled != 0)
+}
+
 /// Enable the metronome click.
 #[no_mangle]
 pub extern "C" fn set_metronome_enabled(enabled: i32) {
