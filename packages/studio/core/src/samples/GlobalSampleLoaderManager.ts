@@ -76,8 +76,13 @@ export class GlobalSampleLoaderManager implements SampleLoaderManager, SamplePro
                 const {count} = ref.unwrap()
                 if (count <= 1) {
                     this.#refCounts.removeByKey(uuid)
-                    this.#loaders.removeByKeyIfExist(uuid)
-                    this.#cache.removeByKeyIfExist(uuid)
+                    // A song rebuilt in one step deletes its file boxes and makes them again: dropped at once, every
+                    // sample of the song was read back from storage on every such step (28 samples, 84 files, measured 11-07).
+                    queueMicrotask(() => {
+                        if (this.#refCounts.hasKey(uuid)) {return}
+                        this.#loaders.removeByKeyIfExist(uuid)
+                        this.#cache.removeByKeyIfExist(uuid)
+                    })
                 } else {
                     ref.unwrap().count--
                 }
@@ -128,6 +133,8 @@ export class GlobalSampleLoaderManager implements SampleLoaderManager, SamplePro
                 if (cached.nonEmpty()) {
                     const {data, peaks, meta} = cached.unwrap()
                     loader.setLoaded(data, peaks, meta)
+                } else {
+                    this.#load(loader) // the load it joined failed or was dropped, and told only its own loader
                 }
             })
             return
