@@ -14,6 +14,7 @@ export interface OfflineEngineRenderConfig {
     silenceThresholdDb?: number
     silenceDurationSeconds?: number
     maxDurationSeconds?: number
+    minDurationSeconds?: number // silence ends a render only after this: what plays later in the song is still coming
 }
 
 export interface OfflineEngineProtocol {

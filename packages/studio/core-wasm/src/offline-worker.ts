@@ -393,10 +393,11 @@ Communicator.executor<OfflineEngineProtocol>(
         },
         async render(config: OfflineEngineRenderConfig) {
             const engine = state.unwrap("state.render")
-            const {silenceThresholdDb, silenceDurationSeconds, maxDurationSeconds} = config
+            const {silenceThresholdDb, silenceDurationSeconds, maxDurationSeconds, minDurationSeconds} = config
             const threshold = dbToGain(silenceThresholdDb ?? -72.0)
             const silenceFramesNeeded = Math.ceil((silenceDurationSeconds ?? 10) * engine.sampleRate)
             const maxFrames = isDefined(maxDurationSeconds) ? Math.ceil(maxDurationSeconds * engine.sampleRate) : Infinity
+            const minFrames = isDefined(minDurationSeconds) ? Math.ceil(minDurationSeconds * engine.sampleRate) : 0
             const {numberOfChannels} = state.unwrap("state.render")
             const chunks: Float32Array[][] = Arrays.create(() => [], numberOfChannels)
             let consecutiveSilentFrames = 0
@@ -422,7 +423,7 @@ Communicator.executor<OfflineEngineProtocol>(
                 if (maxSample > threshold) {hasHadAudio = true}
                 if (isSilent && hasHadAudio) {
                     consecutiveSilentFrames += kept[0].length
-                    if (consecutiveSilentFrames >= silenceFramesNeeded) {break}
+                    if (consecutiveSilentFrames >= silenceFramesNeeded && engine.totalFrames >= minFrames) {break}
                 } else {
                     consecutiveSilentFrames = 0
                 }
@@ -436,7 +437,8 @@ Communicator.executor<OfflineEngineProtocol>(
                     await new Promise(resolve => setTimeout(resolve, 0))
                 }
             }
-            const framesToKeep = engine.totalFrames - consecutiveSilentFrames + Math.min(engine.sampleRate / 4, consecutiveSilentFrames)
+            const framesToKeep = Math.max(Math.min(minFrames, engine.totalFrames),
+                engine.totalFrames - consecutiveSilentFrames + Math.min(engine.sampleRate / 4, consecutiveSilentFrames))
             return Arrays.create(channelIndex => {
                 const total = new Float32Array(framesToKeep)
                 let offset = 0
