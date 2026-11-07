@@ -102,6 +102,14 @@ export class GlobalSampleLoaderManager implements SampleLoaderManager, SamplePro
         })
     }
 
+    // A press asks: a failed load stays failed for what merely reads it (a timeline reads `getOrCreate` on every paint, so
+    // reloading there would hammer a sample that is gone), and a render on a page that outlives a store roll asks again.
+    // Before this, one lost fetch refused every render of that page until it closed.
+    ask(uuid: UUID.Bytes): SampleLoader {
+        if (this.getOrCreate(uuid).state.type === "error") {this.invalidate(uuid)}
+        return this.getOrCreate(uuid)
+    }
+
     async getAudioData(uuid: UUID.Bytes): Promise<AudioData> {
         const {promise, resolve, reject} = Promise.withResolvers<AudioData>()
         const loader = this.getOrCreate(uuid)

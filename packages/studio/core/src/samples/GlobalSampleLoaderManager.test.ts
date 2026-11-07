@@ -34,6 +34,21 @@ describe("GlobalSampleLoaderManager", () => {
         expect(joined.state.type).toBe("loaded")
     })
 
+    it("a press asks again for a sample that failed, and a paint does not", async () => {
+        load.mockRejectedValueOnce(new Error("not in storage")).mockResolvedValue([audio, {}, meta])
+        const manager = new GlobalSampleLoaderManager({fetch: () => Promise.reject(new TypeError("Failed to fetch"))})
+        const loader = manager.getOrCreate(uuid)
+        await settle()
+        expect(loader.state).toEqual({type: "error", reason: "Failed to fetch"})
+        expect(manager.getOrCreate(uuid).state.type).toBe("error")
+        await settle()
+        expect(load).toHaveBeenCalledTimes(1)
+        expect(manager.ask(uuid)).toBe(loader)
+        await settle()
+        expect(loader.state.type).toBe("loaded")
+        expect(load).toHaveBeenCalledTimes(2)
+    })
+
     it("keeps a sample in memory when its box is deleted and made again in one step", async () => {
         load.mockResolvedValue([audio, {}, meta])
         const manager = new GlobalSampleLoaderManager({fetch: () => Promise.reject(new Error("unused"))})
