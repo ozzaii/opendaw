@@ -15,7 +15,6 @@ import {
 import {AudioData, ppqn} from "@opendaw/lib-dsp"
 import {ApparatDeviceBox, SpielwerkDeviceBox, WerkstattDeviceBox} from "@opendaw/studio-boxes"
 import {Communicator, Messenger, Promises, Wait} from "@opendaw/lib-runtime"
-import {AnimationFrame} from "@opendaw/lib-dom"
 import {
     EngineCommands,
     EngineState,
@@ -473,12 +472,13 @@ export class OfflineEngineRenderer {
         const {promise, reject, resolve} = Promise.withResolvers<AudioData>()
         let cancelled = false
         const span = endPosition - startPosition
+        // On a timer, not a frame: a headless page draws no frames, and BRAVOH's stems would stand at 0% to the last sample.
         const polling = span > 0
-            ? AnimationFrame.add(() => {
+            ? Terminable.create((timer => () => clearInterval(timer))(setInterval(() => {
                 this.#reader.tryRead()
                 progress.setValue(Math.min(1.0,
                     Math.max(0, this.#engineStateIO.object.position - startPosition) / span))
-            })
+            }, 100)))
             : Terminable.Empty
         const onAbort = (): void => {
             polling.terminate()
