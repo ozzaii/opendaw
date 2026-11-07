@@ -83,6 +83,13 @@ const pressed = hash.get("gesture") ? new Promise<void>(resolve => {
 const join = async () => {
     mark("script")
     await pressed
+    if (hash.get("control")) {
+        await audioContext!.audioWorklet.addModule(URL.createObjectURL(new Blob([TAP], {type: "text/javascript"})))
+        const tap = new AudioWorkletNode(audioContext!, "np-tap", {numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1], processorOptions: {counter: counter.buffer, meter: meter.buffer, stamps: stamps.buffer, pcm: null}})
+        tap.connect(audioContext!.destination)
+        await audioContext!.resume()
+        return {control: true, storeFailed: 0}
+    }
     const answer = await store("room")
     if (!answer.ok) {return panic(`no room: ${answer.status}`)}
     const {room, ws} = await answer.json()
@@ -162,6 +169,8 @@ const levelDb = (value: number) => value > 0 ? 20 * Math.log10(value) : -200
     },
     now: () => Atomics.load(counter, 0),
     play: (from?: number) => {if (from !== undefined) {project!.engine.setPosition(from)} project!.engine.play()},
+    // A stop zeroes the reverb's LFO, which then runs on while stopped; stop and play in one tick start it where a render does.
+    pressPlay: (from: number) => {project!.engine.stop(true); project!.engine.setPosition(from); project!.engine.play()},
     stop: () => project!.engine.stop(true),
     seek: (position: number) => project!.engine.setPosition(position),
     position: () => project!.engine.position.getValue(),

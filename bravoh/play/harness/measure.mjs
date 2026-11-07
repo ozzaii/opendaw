@@ -28,7 +28,9 @@ const load = async extra => {
   const res = await b.E(`performance.getEntriesByType("resource").map(r => [r.name.split("/").pop().split("?")[0].slice(0, 40), r.decodedBodySize, Math.round(r.duration)])`)
   return {scriptMs: script, pressToSoundMs: Math.round(first.sound - first.press), playToSoundMs: first.ms, marks, fetched: samples.fetched, sampleMB: +(samples.bytes / 1e6).toFixed(1), failed: samples.failed, firstPlayStalls: stalls, res: extra === "" ? undefined : res}
 }
-try {
+// the context and the tap alone: what the browser and the VM do with no engine
+const control = async () => {await b.open("&control=1"); for (let i = 0; i < 200 && !(await b.E("!!document.querySelector('#go')")); i++) await pause(50); await b.press("#go"); return {joined: await b.E("window.np.joined")}}
+const main = async () => {
   if (scenario === "load") {
     const shape = process.env.SHAPE ?? "local"
     const cold = await load("")
@@ -45,18 +47,18 @@ try {
     note("armed play ms", {...stats(plays), all: plays})
   }
   if (scenario === "pass") {
-    const j = await load(process.env.NOPOLL ? "" : "&capture=1")
+    const j = process.env.CONTROL ? await control() : await load(process.env.NOPOLL && !process.env.FRESH ? "" : "&capture=1")
     note("load", {...j, res: undefined})
     await pause(1000)
     note("context at start", await b.E("window.np.context()"))
-    const before = usage(b), q0 = await b.E(`(() => {const q = window.np.now(); ${process.env.NOPOLL ? "" : "window.np.captureStart();"} window.np.play(0); return q})()`)
+    const before = usage(b), q0 = await b.E(`(() => {const q = window.np.now(); ${process.env.CONTROL ? "" : (process.env.FRESH ? "window.np.captureStart(); window.np.pressPlay(0);" : `${process.env.NOPOLL ? "" : "window.np.captureStart();"} window.np.play(0);`)} return q})()`)
     const t0 = Date.now(), budget = 128 / 48
     let n = 0, sum = 0, max = 0, over = 0, seen = null, peak = {}
     const hist = new Array(12).fill(0)
     const SECONDS = Number(process.env.SECONDS ?? 216)
     let nextUsage = 0, pos0 = null
-    if (process.env.NOPOLL) await pause(SECONDS * 1000)
-    while (!process.env.NOPOLL && Date.now() - t0 < SECONDS * 1000) {
+    if (process.env.NOPOLL || process.env.FRESH) await pause(SECONDS * 1000)
+    while (!process.env.NOPOLL && !process.env.FRESH && Date.now() - t0 < SECONDS * 1000) {
       await pause(400)
       const {buffer, index} = await b.E("window.np.perf()")
       if (buffer?.length) {
@@ -76,11 +78,12 @@ try {
     const clock = await b.E(`({a: window.np.stamp(${q0}), z: window.np.stamp(${end - 1})})`)
     const audio = (end - 1 - q0) * 128 / 48000, real = (clock.z - clock.a) / 1000
     note("clock", {audioSec: +audio.toFixed(3), wallSec: +real.toFixed(3), lostMs: Math.round((real - audio) * 1000)})
-    if (!process.env.NOPOLL) note("blocks", {n, avgMs: +(sum / n).toFixed(3), maxMs: +max.toFixed(2), budgetMs: +budget.toFixed(2), avgPct: +(sum / n / budget * 100).toFixed(1), overBudget: over, hist})
+    if (!process.env.NOPOLL && !process.env.FRESH) note("blocks", {n, avgMs: +(sum / n).toFixed(3), maxMs: +max.toFixed(2), budgetMs: +budget.toFixed(2), avgPct: +(sum / n / budget * 100).toFixed(1), overBudget: over, hist})
     for (const over of [30, 50, 100]) note(`stalls >${over}ms`, (await b.E(`window.np.stalls(${q0}, ${over})`)).map(s => s.ms))
     note("context", await b.E("window.np.context()"))
+    if (process.env.CONTROL) {out.done = true; return}
     note("frames", await b.E("(() => {window.np.stop(); return window.np.captureStop()})()"))
-    if (!process.env.NOPOLL) note("sent", await b.E(`window.np.captureSend("http://localhost:7792/?name=${label}")`))
+    if (!process.env.NOPOLL || process.env.FRESH) {note("sent", await b.E(`window.np.captureSend("http://localhost:7792/?name=${label}")`)); if (process.env.FRESH) return}
     // the page's main thread busy for a second: does the audio thread notice?
     await b.E(`window.np.play(${49 * 3840})`); await pause(2000)
     const q1 = await b.E("window.np.now()")
@@ -109,5 +112,6 @@ try {
     note("context", await b.E("window.np.context()"))
     await b.E("window.np.stop()")
   }
-} catch (e) {note("FAILED", String(e.message ?? e).slice(0, 500))}
+}
+try {await main()} catch (e) {note("FAILED", String(e.message ?? e).slice(0, 500))}
 finally {writeFileSync(`results/${label}.json`, JSON.stringify(out, null, 1)); await b.close(); process.exit(0)}

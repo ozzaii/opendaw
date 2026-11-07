@@ -11,7 +11,7 @@ export const vm = command => {
   }
 }
 const pause = ms => new Promise(d => setTimeout(d, ms))
-const pageUrl = (extra = "") => `http://localhost:7791/booth/#key=${KEY}&token=${TOKEN}&gesture=1${process.env.NOPOLL ? "" : "&measure=1"}${extra}`
+const pageUrl = (extra = "") => `http://localhost:7791/booth/#key=${KEY}&token=${TOKEN}&gesture=1${process.env.NOPOLL || process.env.FRESH ? "" : "&measure=1"}${extra}`
 const CH = `/Volumes/Lab/np/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`
 
 export const safari = async () => {
@@ -23,6 +23,7 @@ export const safari = async () => {
   return {
     name: "safari", version: made.capabilities.browserVersion,
     open: async extra => {await wd("POST", `${S}/url`, {url: "about:blank"}); await pause(1500); await wd("POST", `${S}/url`, {url: pageUrl(extra)})},
+    url: u => wd("POST", `${S}/url`, {url: u}),
     press: async css => {const e = await wd("POST", `${S}/element`, {using: "css selector", value: css}); await wd("POST", `${S}/element/${Object.values(e)[0]}/click`, {})},
     E: expr => wd("POST", `${S}/execute/async`, {script: `const done = arguments[arguments.length - 1]; Promise.resolve().then(() => ${expr}).then(v => done(v === undefined ? null : v), e => done({error: String(e)}))`, args: []}),
     close: () => wd("DELETE", S).catch(() => {}),
@@ -42,6 +43,7 @@ export const chrome = async ({flags = ""} = {}) => {
   return {
     name: "chromium", version: browser.version(),
     open: async extra => {await page.goto("about:blank"); await pause(1500); await page.goto(pageUrl(extra))},
+    goto: url => page.goto(url),
     press: css => page.click(css),
     E: expr => page.evaluate(expr).then(v => v ?? null),
     close: async () => {await browser.close().catch(() => {}); vm(`pkill -f "Google Chrome for Testing"; rm -rf /Volumes/Lab/np/prof`)},
