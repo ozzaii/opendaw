@@ -124,16 +124,10 @@ test("a failed render answers its readers and leaves the lane free", async () =>
 })
 
 test("a render that waited past the host's patience says so instead of running out its clock", async () => {
-  const notes = []
-  const lanes = renderLanes({version: async () => 1, stored: async () => false, note: what => notes.push(what), waitMs: 0})
-  const first = work([])
-  const running = lanes.once("running", 1, false, first.run)
+  // a patience already spent, so no millisecond decides it
+  const lanes = renderLanes({version: async () => 1, stored: async () => false, note: () => {}, waitMs: -1})
   const started = []
-  const waiting = lanes.once("waiting", 1, false, work(started).run)
-  await new Promise(resolve => setTimeout(resolve, 10))
-  first.go()
-  await running.catch(() => {})
-  await assert.rejects(waiting, /waiting/)
+  await assert.rejects(lanes.once("waiting", 1, false, work(started).run), /waiting/)
   assert.equal(started.length, 0)
 })
 
@@ -175,6 +169,7 @@ test("a song keeps its newest renders and no others", async () => {
   assert.equal((await call("s2/renders/c?peek=1")).status, 404)
 })
 
+// The two bounces meet on a song not yet open, which once gave each its own Song (`songOf`) and so its own encode.
 test("one render is encoded once, whatever versions and readers ask", async () => {
   await call("s3/renders/r1", {method: "POST", body: wav})
   assert.equal((await call("s3/bounce?version=1&render=missing", {method: "POST"})).status, 404)

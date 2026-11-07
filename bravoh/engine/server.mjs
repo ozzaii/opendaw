@@ -46,8 +46,10 @@ const serial = (key, work) => {
   queues.set(key, next.catch(() => {}))
   return next
 }
-const songOf = async key => {
-  if (!songs.has(key)) songs.set(key, await Song.open(join(DATA, "songs"), key))
+// The open itself is what is kept: two calls meeting on a song not yet open each opened their own, and the later
+// replaced the earlier with its graph and its room still in use. Renders no longer queue, so calls do meet here.
+const songOf = key => {
+  if (!songs.has(key)) songs.set(key, Song.open(join(DATA, "songs"), key).catch(error => {songs.delete(key); throw error}))
   return songs.get(key)
 }
 const samplesDir = key => join(DATA, "samples", key)
