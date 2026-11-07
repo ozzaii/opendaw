@@ -3,7 +3,7 @@ import {applyUpdateTasks, UpdateTask} from "@opendaw/lib-box"
 import {AudioData} from "@opendaw/lib-dsp"
 import {BoxIO, WclapDeviceBox} from "@opendaw/studio-boxes"
 import {AudioUnitType} from "@opendaw/studio-enums"
-import {AudioUnitFactory, InstrumentFactories, ProjectSkeleton, TrackType, WclapParamInfo, WclapParameterAdapters} from "@opendaw/studio-adapters"
+import {AudioUnitFactory, ExportConfiguration, InstrumentFactories, ProjectSkeleton, TrackType, WclapParamInfo, WclapParameterAdapters} from "@opendaw/studio-adapters"
 import {MixdownSection, OfflineEngineListeners, OfflineEngineRenderer, Project, ProjectEnv, RenderQuantum, WclapStorage, Workers} from "@opendaw/studio-core"
 import {NamModel, SoundfontFile, WclapParameterInfo, WclapPlugin} from "@opendaw/studio-scripting"
 import {WclapCatalog} from "@/opendaw-api"
@@ -35,6 +35,38 @@ export namespace ScriptAnswers {
             return await (section === undefined
                 ? OfflineEngineRenderer.start(project, Option.None, progress, abortSignal, sampleRate, listeners)
                 : OfflineEngineRenderer.renderSection(project, Option.None, section, progress, abortSignal, sampleRate, listeners))
+        } finally {
+            project.terminate()
+        }
+    }
+
+    export type Stem = { name: string, kind: "lane" | "return" | "mix" }
+    export type Stems = { audio: AudioData, stems: ReadonlyArray<Stem>, muted: ReadonlyArray<string>, groups: ReadonlyArray<string> }
+    // ONE PASS, EVERY LANE: the engine's own stem export taps each unit after its fader inside the mixdown it runs anyway, delay
+    // compensated to the master (crates/engine/src/lib.rs `stem_compensation`), so the graph that plays is the graph that is
+    // tapped: a side-chain still ducks and a send still reaches its return. The output unit is one more tap: the mix itself.
+    // A group is left out: its tap holds the lanes that have their own file, and a pack that adds up twice lines up with nothing.
+    export const renderStems = async (env: ProjectEnv, buffer: ArrayBufferLike, sampleRate: int, section: MixdownSection, {progress, abortSignal, listeners}: {
+        progress?: DefaultObservableValue<number>, abortSignal?: AbortSignal, listeners?: OfflineEngineListeners
+    } = {}): Promise<Stems> => {
+        const project = Project.load(env, buffer as ArrayBuffer)
+        try {
+            const units = project.rootBoxAdapter.audioUnits.adapters()
+            const label = (unit: typeof units[number]) => unit.input.label.unwrapOrElse(unit.type)
+            const heard = units.filter(unit => unit.isOutput || (unit.type !== AudioUnitType.Bus && !unit.box.mute.getValue()))
+            const configuration: ExportConfiguration = {
+                stems: Object.fromEntries(heard.map(unit => [UUID.toString(unit.uuid), {
+                    includeAudioEffects: true, includeSends: true, useInstrumentOutput: false, fileName: label(unit)
+                }]))
+            }
+            const audio = await OfflineEngineRenderer.renderSection(project, Option.wrap(configuration), section,
+                progress ?? new DefaultObservableValue(0.0), abortSignal, sampleRate, listeners)
+            return {
+                audio,
+                stems: heard.map(unit => ({name: label(unit), kind: unit.isOutput ? "mix" : unit.type === AudioUnitType.Aux ? "return" : "lane"})),
+                muted: units.filter(unit => !unit.isOutput && unit.box.mute.getValue()).map(label),
+                groups: units.filter(unit => !unit.isOutput && unit.type === AudioUnitType.Bus).map(label)
+            }
         } finally {
             project.terminate()
         }

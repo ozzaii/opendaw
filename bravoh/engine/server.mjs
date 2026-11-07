@@ -3,7 +3,9 @@
 // mixdowns and the bounce the phone plays. The page executes a program's studio hands; the store never renders.
 // Loopback, one bearer token.
 import {createServer} from "node:http"
-import {mkdir, readFile, writeFile, readdir} from "node:fs/promises"
+import {createReadStream, createWriteStream} from "node:fs"
+import {mkdir, readFile, stat, writeFile, readdir} from "node:fs/promises"
+import {pipeline} from "node:stream/promises"
 import {randomUUID} from "node:crypto"
 import {join} from "node:path"
 import {WavFile} from "@opendaw/lib-dsp"
@@ -160,6 +162,31 @@ const keepRender = (key, id) => {
   kept.set(id, setTimeout(() => forget(key, id), RENDER_IDLE_MS).unref())
   for (const oldest of [...kept.keys()].slice(0, Math.max(0, kept.size - RENDERS_KEPT))) forget(key, oldest)
 }
+// A SONG'S STEMS, FROM ONE PASS (BravohEngine.ts `stemsOnce`), for the worker that packs them: on disk, one stereo float WAV a
+// lane, never in this process (20 lanes of a 4 min song are 2 GB and this container has 6). One set a song; the set goes when
+// the worker took it, or after half an hour nobody read it, and all of them when this store restarts.
+const stemSets = join(DATA, "stems")
+await rm(stemSets, {recursive: true, force: true})
+const stemSet = (key, id) => join(stemSets, `${key}.${id}`)
+const heldStems = new Map() // key -> {id, done, timer}
+const dropStems = key => {
+  const held = heldStems.get(key)
+  if (!held) return Promise.resolve()
+  clearTimeout(held.timer)
+  heldStems.delete(key)
+  return rm(stemSet(key, held.id), {recursive: true, force: true})
+}
+const holdStems = async (key, id) => {
+  if (heldStems.get(key)?.id !== id) {
+    await dropStems(key)
+    heldStems.set(key, {id, done: 0})
+  }
+  const held = heldStems.get(key)
+  clearTimeout(held.timer)
+  held.timer = setTimeout(() => void dropStems(key), RENDER_IDLE_MS).unref()
+  return held
+}
+
 // THE COUNT OF RENDERS, per song since this engine started: what proves every reader shares one. `rendered` is counted
 // where a render lands; the page says what it spared and what the last one spent (`renders-note`).
 const counts = new Map()
@@ -215,6 +242,35 @@ export const server = createServer(async (request, response) => {
       const bytes = await readFile(renderFile(key, id)).catch(() => null)
       if (!bytes) return send(response, 404, {why: "no such render"})
       response.writeHead(200, {"content-type": "audio/wav", "content-length": bytes.byteLength}); return response.end(bytes)
+    }
+    if (method === "stems") {
+      const [, , , , , id = "", file] = path.split("/")
+      // How far this song's set has come, whichever it is: the worker has no name for it until it is done.
+      if (request.method === "GET" && id === "") return send(response, 200, {done: heldStems.get(key)?.done ?? 0})
+      if (!KEY.test(id) || (file !== undefined && !/^\d{1,4}$/.test(file))) return send(response, 404, {why: "no such stems"})
+      if (request.method === "DELETE") {
+        if (heldStems.get(key)?.id === id) await dropStems(key)
+        return send(response, 200, {})
+      }
+      if (request.method === "GET") {
+        if (heldStems.get(key)?.id !== id) return send(response, 404, {why: "no such stems"})
+        const known = await stat(join(stemSet(key, id), `${file}.wav`)).catch(() => null)
+        if (!known) return send(response, 404, {why: "no such stems"})
+        await holdStems(key, id)
+        response.writeHead(200, {"content-type": "audio/wav", "content-length": known.size})
+        return pipeline(createReadStream(join(stemSet(key, id), `${file}.wav`)), response)
+      }
+      if (request.method === "POST" && file === undefined) {
+        const held = await holdStems(key, id)
+        held.done = Number(new URL(request.url, "http://engine").searchParams.get("done")) || held.done
+        return send(response, 200, {})
+      }
+      if (request.method === "POST") {
+        await holdStems(key, id)
+        await mkdir(stemSet(key, id), {recursive: true})
+        await pipeline(request, createWriteStream(join(stemSet(key, id), `${file}.wav`)))
+        return send(response, 200, {})
+      }
     }
     if (request.method === "GET" && method === "soundfonts") return send(response, 200, await soundfontIndex(key))
     if (request.method === "GET" && method === "soundfont") {

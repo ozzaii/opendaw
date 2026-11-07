@@ -3,7 +3,7 @@
 // host opens it headless as `/#engine=<song key>&token=<engine token>` and calls window.engine.call(method, wire, turn).
 // The store (bravoh/engine/server.mjs) keeps the song, its undo marks, the renders and the bounce; this page saves
 // nothing itself: its edits reach the store through the room. It never writes UI state boxes into the song.
-import {int, Option, UUID} from "@opendaw/lib-std"
+import {DefaultObservableValue, int, Option, UUID} from "@opendaw/lib-std"
 import {AudioData, PPQN, ppqn, TimeBase, WavFile} from "@opendaw/lib-dsp"
 import {BoxGraph} from "@opendaw/lib-box"
 import {ProjectSkeleton} from "@opendaw/studio-adapters"
@@ -76,9 +76,9 @@ const noSong = () => new Error("There is no song in the booth yet: start one wit
 
 // What a render covers, as the studio's own mixdown sections (MixdownSection.collect) have it: the loop area when it is
 // on, exactly (a phrase), else the whole song with its tail.
-const sectionOf = (graph: BoxGraph): MixdownSection => {
+const sectionOf = (graph: BoxGraph, whole = false): MixdownSection => {
     const {loopArea, bpm} = ProjectSkeleton.findMandatoryBoxes(graph).timelineBox
-    if (loopArea.enabled.getValue() && loopArea.to.getValue() > loopArea.from.getValue()) {
+    if (!whole && loopArea.enabled.getValue() && loopArea.to.getValue() > loopArea.from.getValue()) {
         return {type: "loop", key: "loop", label: "Loop Area", start: loopArea.from.getValue(), end: loopArea.to.getValue(), passes: 1, tail: false}
     }
     // A no-sync region (a stem with no tempo) keeps its length in SECONDS, as the region's adapter converts it: read as
@@ -104,11 +104,7 @@ const loaded = (what: string, loader: Loader, watch: RenderWatch): Promise<void>
         })
     }).finally(answered)
 }
-const render = async (service: StudioService, bytes: ArrayBufferLike, sampleRate: int, took: Record<string, number>, watch: RenderWatch): Promise<AudioData> => {
-    const began = performance.now()
-    const {boxGraph} = ProjectSkeleton.decode(bytes as ArrayBuffer)
-    const section = sectionOf(boxGraph)
-    if (section.end <= section.start) {throw new Error("The song has no regions to render.")}
+const soundsOf = async (service: StudioService, boxGraph: BoxGraph, watch: RenderWatch): Promise<void> => {
     const loads = await Promise.allSettled(boxGraph.boxes().flatMap(box => {
         const uuid = box.address.uuid, id = UUID.toString(uuid)
         return box.name === "AudioFileBox" ? [loaded(`sample ${id}`, service.sampleManager.getOrCreate(uuid) as any, watch)]
@@ -116,6 +112,13 @@ const render = async (service: StudioService, bytes: ArrayBufferLike, sampleRate
     }))
     const failed = loads.flatMap(load => load.status === "rejected" ? [String(load.reason?.message ?? load.reason)] : [])
     if (failed.length > 0) {throw new Error(`Some sounds of the song did not load, so the render would be missing them: ${failed.join("; ")}`)}
+}
+const render = async (service: StudioService, bytes: ArrayBufferLike, sampleRate: int, took: Record<string, number>, watch: RenderWatch): Promise<AudioData> => {
+    const began = performance.now()
+    const {boxGraph} = ProjectSkeleton.decode(bytes as ArrayBuffer)
+    const section = sectionOf(boxGraph)
+    if (section.end <= section.start) {throw new Error("The song has no regions to render.")}
+    await soundsOf(service, boxGraph, watch)
     took.soundsMs = Math.round(performance.now() - began)
     // the live AudioContext keeps running: an offline render is a worker of its own
     const audio = await ScriptAnswers.renderMixdown(service, bytes, sampleRate, {section, abortSignal: watch.signal, listeners: {wait: watch.wait, quiet: true}})
@@ -182,6 +185,71 @@ const renderOnce = async (service: StudioService, bytes: ArrayBufferLike, sample
     return id
 }
 
+// Under this no file is written: a lane with nothing to play (-120 dBFS, under any reverb's dust).
+const SILENT_PEAK = 1e-6
+// `AudioBounce.withRelease`'s two numbers (its module's own): the longest a release runs past the song, and its fade.
+const AUDIBLE_RELEASE = 6, RELEASE_FADE = 1.5
+let stemsTold: { stems: string, sampleRate: int, frames: int, files: ReadonlyArray<unknown>, muted: ReadonlyArray<string>, silent: ReadonlyArray<string>, groups: ReadonlyArray<string>, took: Record<string, number> } | undefined
+/**
+ * THE SONG'S LANES, ONE FILE EACH, from one pass (`ScriptAnswers.renderStems`), into the store one by one. Whole song from
+ * bar 1 whatever the loop says, on the bounce's own path (`tail`): measured 7 Nov on a 213 s song, its mix tap is the plain
+ * mixdown bit for bit and its stems sum to the master-off render at -144 dB. The stepped path (`tail: false`) came out 16
+ * samples early and nulled at -29 dB. It stands in everybody's lane (`false`): Play's render passes it.
+ */
+const stemsOnce = async (service: StudioService, bytes: ArrayBufferLike, sampleRate: int, version: int) => {
+    const id = `${UUID.toString(await UUID.sha256(bytes as ArrayBuffer))}-${sampleRate}-stems`
+    await lanes.once(id, version, false, async watch => {
+        const took: Record<string, number> = {}
+        const began = performance.now()
+        const {boxGraph} = ProjectSkeleton.decode(bytes as ArrayBuffer)
+        const whole = sectionOf(boxGraph, true)
+        if (whole.end <= whole.start) {throw new Error("The song has no regions to render.")}
+        await soundsOf(service, boxGraph, watch)
+        took.soundsMs = Math.round(performance.now() - began)
+        const {bpm} = ProjectSkeleton.findMandatoryBoxes(boxGraph).timelineBox
+        const progress = new DefaultObservableValue(0.0)
+        let said = 0
+        const saying = progress.subscribe(owner => {
+            const done = owner.getValue()
+            if (done - said < 0.02) {return}
+            said = done
+            void post(`stems/${id}?done=${done.toFixed(3)}`, "").catch(() => {})
+        })
+        const {audio, stems, muted, groups} = await ScriptAnswers.renderStems(service, bytes, sampleRate,
+            whole, {progress, abortSignal: watch.signal, listeners: {wait: watch.wait}})
+        saying.terminate()
+        took.renderMs = Math.round(performance.now() - began) - took.soundsMs
+        const song = Math.round(PPQN.pulsesToSeconds(whole.end - whole.start, bpm.getValue()) * sampleRate)
+        // `withRelease`'s cut, in place: its copy is the whole render again, 2 GB on 20 lanes of 4 min.
+        const most = Math.min(audio.numberOfFrames, song + Math.round(AUDIBLE_RELEASE * sampleRate))
+        const length = AudioBounce.releasedLength(audio.frames, Math.min(song, most), most)
+        const fade = most < audio.numberOfFrames && length === most ? Math.min(length - song, Math.round(RELEASE_FADE * sampleRate)) : 0
+        for (let index = 1; index <= fade; index++) {
+            audio.frames.forEach(channel => channel[length - index] *= (index - 1) / fade)
+        }
+        const posting = performance.now()
+        const files: Array<{ file: int, name: string, kind: string }> = []
+        const silent: Array<string> = []
+        for (let at = 0; at < stems.length; at++) {
+            const [left, right] = [audio.frames[at * 2].subarray(0, length), audio.frames[at * 2 + 1].subarray(0, length)]
+            const loud = (channel: Float32Array) => channel.some(sample => Math.abs(sample) >= SILENT_PEAK)
+            if (!loud(left) && !loud(right)) {
+                if (stems[at].kind !== "mix") {silent.push(stems[at].name)}
+                continue
+            }
+            await post(`stems/${id}/${at}`, WavFile.encodeFloats({
+                sampleRate, numberOfFrames: length, numberOfChannels: 2, frames: [left, right]
+            } as AudioData))
+            files.push({file: at, name: stems[at].name, kind: stems[at].kind})
+        }
+        took.postMs = Math.round(performance.now() - posting)
+        await post(`renders-note`, JSON.stringify({took}))
+        stemsTold = {stems: id, sampleRate, frames: length, files, muted, silent, groups, took}
+    })
+    // A second reader joined the first's render, so the answer is the render's, not this call's.
+    return stemsTold?.stems === id ? stemsTold : Promise.reject(new Error("The stems were rendered and overtaken: ask again."))
+}
+
 const methods: Record<string, (service: StudioService, input: any, turn: string) => Promise<unknown>> = {
     host: async (service, {call, args}) => {
         const calls = hostCalls(service)
@@ -213,8 +281,10 @@ const methods: Record<string, (service: StudioService, input: any, turn: string)
 // wait a whole song behind one (11-07: a `studio_open` read 60.4 s). `edit` is the one line edits stand in, for what must read the room.
 const renders: Record<string, (service: StudioService, input: any, turn: string, edit: <T>(work: () => Promise<T>) => Promise<T>) => Promise<unknown>> = {
     // a candidate the program built, rendered and never applied; the frames wait in the store for the hand to fetch
-    mixdown: async (service, {project, sampleRate}, turn) => {
+    mixdown: async (service, {project, sampleRate, stems}, turn) => {
         const {version} = await answerOf("version")
+        // Under `mixdown`, never a method of its own: the host keeps a render out of its line by that name (`RENDER_METHODS`).
+        if (stems === true) {return stemsOnce(service, project, sampleRate ?? 48_000, version)}
         return {render: await renderOnce(service, project, sampleRate ?? 48_000, turn === ARTIST_TURN, version)}
     },
     // the song as the phone plays it, kept by the store for the version it was rendered from. A bounce overtaken while it
