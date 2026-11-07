@@ -11,8 +11,8 @@ export const vm = command => {
   }
 }
 const pause = ms => new Promise(d => setTimeout(d, ms))
-const pageUrl = (extra = "") => `http://localhost:7791/booth/#key=${KEY}&token=${TOKEN}&gesture=1&measure=1${extra}`
-const CH = `$HOME/np/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`
+const pageUrl = (extra = "") => `http://localhost:7791/booth/#key=${KEY}&token=${TOKEN}&gesture=1${process.env.NOPOLL ? "" : "&measure=1"}${extra}`
+const CH = `/Volumes/Lab/np/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`
 
 export const safari = async () => {
   const W = "http://127.0.0.1:14444"
@@ -32,8 +32,7 @@ export const safari = async () => {
 
 // Inside the GUI session, or Chrome gets no audio device from an ssh shell. A fresh profile per call: a cold start.
 export const chrome = async ({flags = ""} = {}) => {
-  vm(`pkill -f "Google Chrome for Testing" ; rm -rf /tmp/np-prof; mkdir -p /tmp/np-prof; echo admin | sudo -S launchctl asuser 501 sudo -u admin nohup "${CH}" --headless=new --remote-debugging-port=9222 --user-data-dir=/tmp/np-prof --no-first-run --no-default-browser-check ${flags} about:blank >/tmp/np-chrome.log 2>&1 &`)
-  try {execSync(`pgrep -f "L 19222:localhost:9222" || sshpass -p admin ssh -o PubkeyAuthentication=no -o UserKnownHostsFile=/Users/ozai/projects/bravoh-lanes/lab-tools/vm_known_hosts admin@192.168.64.3 -f -N -L 19222:localhost:9222`, {stdio: "ignore"})} catch {}
+  vm(`pkill -f "Google Chrome for Testing" ; rm -rf /Volumes/Lab/np/prof; mkdir -p /Volumes/Lab/np/prof; echo admin | sudo -S launchctl asuser 501 sudo -u admin TMPDIR=/Volumes/Lab/np/tmp nohup "${CH}" --headless=new --remote-debugging-port=9222 --user-data-dir=/Volumes/Lab/np/prof --no-first-run --no-default-browser-check ${flags} about:blank >/Volumes/Lab/np/chrome.log 2>&1 &`)
   let browser
   for (let i = 0; i < 40 && !browser; i++) {await pause(500); browser = await chromium.connectOverCDP("http://127.0.0.1:19222").catch(() => undefined)}
   if (!browser) throw new Error("no chromium on the VM")
@@ -45,7 +44,7 @@ export const chrome = async ({flags = ""} = {}) => {
     open: async extra => {await page.goto("about:blank"); await pause(1500); await page.goto(pageUrl(extra))},
     press: css => page.click(css),
     E: expr => page.evaluate(expr).then(v => v ?? null),
-    close: async () => {await browser.close().catch(() => {}); vm(`pkill -f "Google Chrome for Testing"; rm -rf /tmp/np-prof`)},
+    close: async () => {await browser.close().catch(() => {}); vm(`pkill -f "Google Chrome for Testing"; rm -rf /Volumes/Lab/np/prof`)},
     procs: /Google Chrome for Testing( Helper)?.*(--type=renderer|AudioService|--type=gpu)|MacOS\/Google Chrome for Testing |coreaudiod/
   }
 }

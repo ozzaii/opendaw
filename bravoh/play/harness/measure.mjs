@@ -19,6 +19,7 @@ const load = async extra => {
   const joined = await Promise.race([b.E("window.np.joined"), pause(150000).then(() => ({hung: true}))])
   if (joined.hung) {out.hangs = (out.hangs ?? 0) + 1; const marks = await b.E("window.np.marks()"); say("JOIN HUNG", marks); return {hung: true, marks}}
   if (joined.failed || joined.error) throw new Error(JSON.stringify(joined))
+  if (joined.storeFailed) throw new Error(`NOT CLEAN: ${joined.storeFailed} samples not stored; page says: ${await b.E("document.querySelector('#store-failed')?.textContent")}`)
   const marks = await b.E("window.np.marks()"), samples = await b.E("window.np.samples()")
   const first = await b.E(`(async () => {const q = window.np.now(), w = Date.now(); window.np.play(0); const c = await window.np.crossing(q, -60, true, 15000, 2); return {ms: window.np.stamp(c.quantum) - w, q, press: performance.timeOrigin + window.np.marks().pressed, sound: window.np.stamp(c.quantum)}})()`)
   await pause(3000)
@@ -44,16 +45,18 @@ try {
     note("armed play ms", {...stats(plays), all: plays})
   }
   if (scenario === "pass") {
-    const j = await load(process.env.NOCAP ? "" : "&capture=1")
+    const j = await load(process.env.NOPOLL ? "" : "&capture=1")
     note("load", {...j, res: undefined})
     await pause(1000)
-    const before = usage(b), q0 = await b.E(`(() => {const q = window.np.now(); window.np.captureStart(); window.np.play(0); return q})()`)
+    note("context at start", await b.E("window.np.context()"))
+    const before = usage(b), q0 = await b.E(`(() => {const q = window.np.now(); ${process.env.NOPOLL ? "" : "window.np.captureStart();"} window.np.play(0); return q})()`)
     const t0 = Date.now(), budget = 128 / 48
     let n = 0, sum = 0, max = 0, over = 0, seen = null, peak = {}
     const hist = new Array(12).fill(0)
     const SECONDS = Number(process.env.SECONDS ?? 216)
     let nextUsage = 0, pos0 = null
-    while (Date.now() - t0 < SECONDS * 1000) {
+    if (process.env.NOPOLL) await pause(SECONDS * 1000)
+    while (!process.env.NOPOLL && Date.now() - t0 < SECONDS * 1000) {
       await pause(400)
       const {buffer, index} = await b.E("window.np.perf()")
       if (buffer?.length) {
@@ -73,11 +76,11 @@ try {
     const clock = await b.E(`({a: window.np.stamp(${q0}), z: window.np.stamp(${end - 1})})`)
     const audio = (end - 1 - q0) * 128 / 48000, real = (clock.z - clock.a) / 1000
     note("clock", {audioSec: +audio.toFixed(3), wallSec: +real.toFixed(3), lostMs: Math.round((real - audio) * 1000)})
-    note("blocks", {n, avgMs: +(sum / n).toFixed(3), maxMs: +max.toFixed(2), budgetMs: +budget.toFixed(2), avgPct: +(sum / n / budget * 100).toFixed(1), overBudget: over, hist})
-    for (const over of [15, 30, 50, 100]) note(`stalls >${over}ms`, (await b.E(`window.np.stalls(${q0}, ${over})`)).map(s => s.ms))
+    if (!process.env.NOPOLL) note("blocks", {n, avgMs: +(sum / n).toFixed(3), maxMs: +max.toFixed(2), budgetMs: +budget.toFixed(2), avgPct: +(sum / n / budget * 100).toFixed(1), overBudget: over, hist})
+    for (const over of [30, 50, 100]) note(`stalls >${over}ms`, (await b.E(`window.np.stalls(${q0}, ${over})`)).map(s => s.ms))
     note("context", await b.E("window.np.context()"))
     note("frames", await b.E("(() => {window.np.stop(); return window.np.captureStop()})()"))
-    note("sent", await b.E(`window.np.captureSend("http://localhost:7792/?name=${label}")`))
+    if (!process.env.NOPOLL) note("sent", await b.E(`window.np.captureSend("http://localhost:7792/?name=${label}")`))
     // the page's main thread busy for a second: does the audio thread notice?
     await b.E(`window.np.play(${49 * 3840})`); await pause(2000)
     const q1 = await b.E("window.np.now()")

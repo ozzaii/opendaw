@@ -130,7 +130,14 @@ const join = async () => {
     mark("contextRunning")
     await allLoaded(fileIds())
     mark("samplesLoaded")
-    return {room, boxes: boxGraph.boxes().length, isolated: crossOriginIsolated, files: fileIds().length}
+    // A sample that could not be stored plays as silence with the transport running: say so on the page.
+    if (samples.failed.length > 0) {
+        console.error("sample store failed", samples.failed)
+        const banner = Object.assign(document.createElement("p"), {id: "store-failed", role: "alert",
+            textContent: `${samples.failed.length} of ${fileIds().length} sounds could not be stored; they will not play.`})
+        document.body.prepend(banner)
+    }
+    return {room, boxes: boxGraph.boxes().length, isolated: crossOriginIsolated, files: fileIds().length, storeFailed: samples.failed.length}
 }
 
 const unitsOf = () => project!.boxGraph.boxes().filter(box => box.name === "AudioUnitBox") as any[]
@@ -202,6 +209,23 @@ const levelDb = (value: number) => value > 0 ? 20 * Math.log10(value) : -200
         const frames = Atomics.load(counter, 2)
         const copy = new Float32Array(frames * 2); copy.set(capture!.subarray(0, frames * 2))
         return (await fetch(url, {method: "POST", body: copy})).text()
+    },
+    // One take of what the tap heard from `at` for 14 s, and what two takes leave when subtracted: same-page repeatability.
+    take: async (at: number) => {
+        Atomics.store(counter, 2, 0); Atomics.store(counter, 1, 1)
+        project!.engine.play(); project!.engine.setPosition(at)
+        await new Promise(resolve => setTimeout(resolve, 14_000))
+        project!.engine.stop(true)
+        Atomics.store(counter, 1, 0)
+        return capture!.slice(0, Atomics.load(counter, 2) * 2)
+    },
+    nullOf: (one: Float32Array, two: Float32Array) => {
+        const rms = (x: Float32Array, y: Float32Array | null, from: number, n: number, lag: number) => {let s = 0; for (let i = from; i < from + n; i++) {const d = x[i] - (y ? y[i + lag] : 0); s += d * d} return Math.sqrt(s / n)}
+        const from = 48_000 * 4, n = 48_000 * 2 * 8
+        let best = Infinity, lag = 0
+        for (let k = -96; k <= 96; k++) {const r = rms(one, two, from, 48_000, k * 256); if (r < best) {best = r; lag = k * 256}}
+        const signal = rms(one, null, from, n, 0), left = rms(one, two, from, n, lag)
+        return {signalDb: Math.round(levelDb(signal) * 10) / 10, leftDb: Math.round(levelDb(left) * 10) / 10, nullDb: signal > 0 ? Math.round((levelDb(left) - levelDb(signal)) * 10) / 10 : null, lagFrames: lag / 2}
     },
     memory: async () => {
         const measured = await (performance as any).measureUserAgentSpecificMemory?.().catch((error: any) => ({error: String(error)}))

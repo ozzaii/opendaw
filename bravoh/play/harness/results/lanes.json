@@ -1,0 +1,111 @@
+{
+ "bar": 33,
+ "lanes": {
+  "Eastern Lead take": {
+   "signalDb": -19.6,
+   "leftDb": -164.8,
+   "nullDb": -145.2,
+   "lagFrames": 384
+  },
+  "Acid Lead take": {
+   "signalDb": -14,
+   "leftDb": -200,
+   "nullDb": -186,
+   "lagFrames": 0
+  },
+  "Perc take": {
+   "signalDb": -34.2,
+   "leftDb": -200,
+   "nullDb": -165.8,
+   "lagFrames": 0
+  },
+  "Hats take": {
+   "signalDb": -24.4,
+   "leftDb": -200,
+   "nullDb": -175.6,
+   "lagFrames": 0
+  },
+  "FX take": {
+   "signalDb": -200,
+   "leftDb": -200,
+   "nullDb": null,
+   "lagFrames": -12288
+  },
+  "Kick take": {
+   "signalDb": -14.5,
+   "leftDb": -187.3,
+   "nullDb": -172.8,
+   "lagFrames": 0
+  },
+  "Output": {
+   "signalDb": -12.8,
+   "leftDb": -28.5,
+   "nullDb": -15.7,
+   "lagFrames": -768
+  },
+  "Echo": {
+   "signalDb": -13.4,
+   "leftDb": -173.1,
+   "nullDb": -159.6,
+   "lagFrames": 0
+  },
+  "Dark Pad take": {
+   "signalDb": -29,
+   "leftDb": -200,
+   "nullDb": -171,
+   "lagFrames": -1024
+  },
+  "Space": {
+   "signalDb": -17.9,
+   "leftDb": -25.8,
+   "nullDb": -7.9,
+   "lagFrames": -896
+  },
+  "Reverse": {
+   "signalDb": -14,
+   "leftDb": -200,
+   "nullDb": -186,
+   "lagFrames": 0
+  },
+  "Chant take": {
+   "signalDb": -200,
+   "leftDb": -200,
+   "nullDb": null,
+   "lagFrames": -12288
+  },
+  "Rolling Bass take": {
+   "signalDb": -21.1,
+   "leftDb": -224.4,
+   "nullDb": -203.3,
+   "lagFrames": 1024
+  }
+ },
+ "devices": {
+  "VaporisateurDeviceBox": 10,
+  "RevampDeviceBox": 18,
+  "ModulationBox": 1,
+  "StereoToolDeviceBox": 7,
+  "TapeDeviceBox": 9,
+  "ConvolverDeviceBox": 1,
+  "WaveshaperDeviceBox": 2,
+  "LfoModulatorBox": 1,
+  "DattorroReverbDeviceBox": 1,
+  "WerkstattDeviceBox": 1,
+  "MaximizerDeviceBox": 1,
+  "CompressorDeviceBox": 2,
+  "DelayDeviceBox": 1
+ },
+ "freeRunning": [
+  {
+   "name": "LfoModulatorBox",
+   "label": "LFO",
+   "code": ""
+  },
+  {
+   "name": "WerkstattDeviceBox",
+   "host": "Reverse",
+   "label": "Window",
+   "code": "// @werkstatt js 1 1\n// @label Window\n// @param from 245760 0 600000 linear\n// @param to 307200 0 600000 linear\nclass Processor {\n  from = 245760; to = 307200; g = 0\n  paramChanged(l, v) { if (l === \"from\") this.from = v; else if (l === \"to\") this.to = v }\n  process(io, b) {\n    const n = b.s1 - b.s"
+  }
+ ]
+}

@@ -1,0 +1,87 @@
+{
+ "name": "chromium",
+ "scenario": "pass",
+ "label": "chromium-quiet2",
+ "version": "156.0.8078.4",
+ "load": {
+  "scriptMs": 1616,
+  "pressToSoundMs": 666,
+  "playToSoundMs": 17,
+  "marks": {
+   "script": 91,
+   "pressed": 198,
+   "engineCompiled": 252,
+   "roomSynced": 277,
+   "projectBuilt": 352,
+   "engineReady": 388,
+   "contextRunning": 388,
+   "samplesLoaded": 843
+  },
+  "fetched": 13,
+  "sampleMB": 105.5,
+  "failed": [],
+  "firstPlayStalls": []
+ },
+ "context at start": {
+  "state": "running",
+  "sampleRate": 48000,
+  "baseLatency": 0.021333333333333333,
+  "outputLatency": 0.048,
+  "stats": {
+   "underrunEvents": 1,
+   "underrunDuration": 0.021335,
+   "totalDuration": 5.057405,
+   "averageLatency": 0.04314,
+   "minimumLatency": 0,
+   "maximumLatency": 0.044725
+  }
+ },
+ "footprint": "Google Chrome for Testing Helper (Aperitif Renderer) [1838]: 64-bit    Footprint: 498 MB (16384 bytes per page)\n    phys_footprint: 498 MB\n    phys_footprint_peak: 930 MB",
+ "usage": {
+  "coreaudiod": {
+   "cpuPct": 0.4,
+   "rssMB": 57
+  },
+  "app": {
+   "cpuPct": 0.3,
+   "rssMB": 274
+  },
+  "gpu": {
+   "cpuPct": 0.7,
+   "rssMB": 112
+  },
+  "page": {
+   "cpuPct": 9.7,
+   "rssMB": 794
+  },
+  "audio": {
+   "cpuPct": 0.3,
+   "rssMB": 49
+  }
+ },
+ "peak rss MB": {},
+ "clock": {
+  "audioSec": 216.531,
+  "wallSec": 216.513,
+  "lostMs": -18
+ },
+ "stalls >30ms": [],
+ "stalls >50ms": [],
+ "stalls >100ms": [],
+ "context": {
+  "state": "running",
+  "sampleRate": 48000,
+  "baseLatency": 0.021333333333333333,
+  "outputLatency": 0.048,
+  "stats": {
+   "underrunEvents": 1,
+   "underrunDuration": 0.021335,
+   "totalDuration": 221.664575,
+   "averageLatency": 0.04385,
+   "minimumLatency": 0,
+   "maximumLatency": 0.04474
+  }
+ },
+ "frames": 0,
+ "main thread busy 1 s x5, stalls >30ms": []
+}
