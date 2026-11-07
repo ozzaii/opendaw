@@ -452,7 +452,9 @@ Communicator.executor<OfflineEngineProtocol>(
             }
             const framesToKeep = Math.max(Math.min(minFrames, engine.totalFrames),
                 engine.totalFrames - consecutiveSilentFrames + Math.min(engine.sampleRate / 4, consecutiveSilentFrames))
-            return Arrays.create(channelIndex => {
+            // Each channel's chunks go as it is copied, and the whole moves: 27 stems of 229 s, cloned, answered
+            // "Data cannot be cloned, out of memory" (11-07).
+            const channels = Arrays.create(channelIndex => {
                 const total = new Float32Array(framesToKeep)
                 let offset = 0
                 for (const chunk of chunks[channelIndex]) {
@@ -461,8 +463,10 @@ Communicator.executor<OfflineEngineProtocol>(
                     total.set(chunk.subarray(0, toCopy), offset)
                     offset += toCopy
                 }
+                chunks[channelIndex] = []
                 return total
             }, numberOfChannels)
+            return Communicator.answerMoving(channels, channels.map(channel => channel.buffer))
         },
         stop() { state.unwrap("state.stop").running = false }
     }

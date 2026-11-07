@@ -16,6 +16,13 @@ export namespace Communicator {
 
     export const makeTransferable = <T extends Transferable>(value: T): T => new Transfer(value) as unknown as T
 
+    class Answer {
+        constructor(readonly value: unknown, readonly transfer: Transferable[]) {}
+    }
+
+    /** What an executor returns when its answer's buffers should move instead of being cloned. */
+    export const answerMoving = <T>(value: T, transfer: Transferable[]): T => new Answer(value, transfer) as unknown as T
+
     export const sender = <PROTOCOL>(messenger: Messenger, bind: (dispatcher: Dispatcher) => PROTOCOL): PROTOCOL =>
         bind(new Sender(messenger))
 
@@ -151,7 +158,9 @@ export namespace Communicator {
         }
 
         readonly #sendResolve = (returnId: number, value: any): void =>
-            this.#messenger.send({type: "resolve", returnId, resolve: value} satisfies Resolve)
+            value instanceof Answer
+                ? this.#messenger.send({type: "resolve", returnId, resolve: value.value} satisfies Resolve, value.transfer)
+                : this.#messenger.send({type: "resolve", returnId, resolve: value} satisfies Resolve)
 
         readonly #sendReject = (returnId: number, reason: any): void =>
             this.#messenger.send({type: "reject", returnId, reject: reason} satisfies Reject)
