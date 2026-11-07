@@ -177,6 +177,21 @@ test("one render is encoded once, whatever versions and readers ask", async () =
   assert.deepEqual(answers.map(answer => answer.status), [200, 200])
   assert.equal((await call("s3/bounce?version=2&render=r1", {method: "POST"})).status, 200)
   assert.equal((await (await call("s3/renders-stats")).json()).encoded, 1)
+})
+
+test("a reader that waited for a bounce gets it, however far the song has moved", async () => {
+  await call("s4/start", {method: "POST", body: "{}"})
+  const song = (await (await call("s4/version")).json()).version
+  await call("s4/renders/r1", {method: "POST", body: wav})
+  assert.equal((await call(`s4/audio?version=${song}`)).status, 409)
+  assert.equal((await call(`s4/bounce?version=${song}&render=r1`, {method: "POST"})).status, 200)
+  assert.equal((await call(`s4/audio?version=${song}`)).status, 200)
+  // a version the store has no bounce of yet, and one rendered from before the song moved
+  assert.equal((await call(`s4/audio?version=${song + 1}`)).status, 409)
+  assert.equal((await call(`s4/bounce?version=${song + 2}&render=r1`, {method: "POST"})).status, 200)
+  assert.equal((await call(`s4/audio?version=${song + 1}`)).status, 200)
+  // asked with no version: the song's own, as before
+  assert.equal((await call("s4/audio")).status, 200)
   server.close()
   server.closeAllConnections()
 })

@@ -197,7 +197,12 @@ export const server = createServer(async (request, response) => {
     if (request.method === "GET" && method === "audio") {
       const song = await songOf(key)
       if (!song.graph) return send(response, 404, {why: "no song"})
-      if (song.bounced?.version !== song.version) return send(response, 409, {why: "not rendered", version: song.version})
+      // A reader that waited for a bounce names its version: the song may have moved on while it rendered, and the file it
+      // waited for, or a newer one, is what it came for. 11-07: a 248 s song renders in 70 s with versions 20-50 s apart, so
+      // no read of the song's version ever found its file and the phone heard nothing new for as long as make worked.
+      const named = new URL(request.url, "http://engine").searchParams.get("version")
+      const wanted = named === null ? song.version : Number(named)
+      if (!(song.bounced?.version >= wanted)) return send(response, 409, {why: "not rendered", version: song.version})
       const {file} = song.bounced
       response.writeHead(200, {"content-type": file.type, "content-length": file.bytes.byteLength}); return response.end(file.bytes)
     }
