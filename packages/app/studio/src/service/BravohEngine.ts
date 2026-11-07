@@ -136,8 +136,32 @@ const reached = async (before: int): Promise<void> => {
 
 // A SCRIPT'S OTHER HOST CALLS: the studio's catalogues as the code editor answers them, and what a program adds kept by
 // the store with the song (this page keeps nothing, and a booth page plays the same song)
-type HostCalls = Pick<ScriptHostProtocol, "listSoundfonts" | "addSoundfont" | "listNamModels" | "addNamModel" | "listWclaps" | "describeWclap">
+type HostCalls = Pick<ScriptHostProtocol, "listSoundfonts" | "addSoundfont" | "listNamModels" | "addNamModel" | "listWclaps" | "describeWclap"> & {
+    masterMatch(wire: string, reference: {builtin?: string, sample?: string}): Promise<unknown>
+}
+// A file the store holds, as the studio's AudioData.
+const wavOf = async (path: string): Promise<AudioData> => {
+    const response = await store(path)
+    if (!response.ok) {throw new Error(`the store answered ${response.status} to ${path}`)}
+    return WavFile.decodeFloats(await response.arrayBuffer())
+}
 const hostCalls = (service: StudioService): HostCalls => ({
+    // THE REFERENCE MATCH, on the render of the project in `wire`: a render the store holds costs nothing. Analysis is the
+    // fork's Matchering worker (GPL-3.0), and what it answers goes on the Mastering device as a program writes it.
+    // shortcut: runs on the page's edit line, so an uncached render holds the song's edits; the mix renders first.
+    masterMatch: async (wire, {builtin, sample}) => {
+        const {project, sampleRate} = decode(wire)
+        const {version} = await answerOf("version")
+        const id = await renderOnce(service, project, sampleRate ?? 48_000, false, version)
+        const {Matchering} = await import("@opendaw/studio-matchering")
+        const name = sample ?? builtin ?? "Balanced"
+        const profile = sample !== undefined
+            ? await Matchering.analyseReference(await wavOf(`sample?uuid=${sample}`))
+            : await Matchering.builtinProfile(Math.max(0, Matchering.BuiltinProfiles.indexOf(name)))
+        const match = await Matchering.matchTarget(await wavOf(`renders/${id}`), profile)
+        const base64 = (curve: Float64Array) => toBase64(new Uint8Array(Matchering.curveToBytes(curve).buffer))
+        return {matchGain: match.gain, finalAmplitude: match.finalAmplitude, midCurve: base64(match.midCurve), sideCurve: base64(match.sideCurve), referenceName: name}
+    },
     listSoundfonts: async () => [...await ScriptAnswers.listSoundfonts(service), ...await answerOf("soundfonts")],
     addSoundfont: (buffer, name) => post(`soundfonts?name=${encodeURIComponent(name)}`, buffer),
     listNamModels: () => answerOf("nam"),

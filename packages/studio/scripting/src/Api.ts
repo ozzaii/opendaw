@@ -2011,6 +2011,31 @@ export interface GroupAudioUnit extends BusAudioUnit, Sendable {
 export interface OutputAudioUnit extends BusAudioUnit {
     /** Always "output" */
     readonly kind: "output"
+    /** The Mastering device on the output, after its effects and before its fader; `null` takes it off */
+    mastering: Nullable<Mastering>
+}
+
+/**
+ * A reference match (Matchering) as the Mastering device stores it, with the device's own knobs
+ * @group Audio Units
+ */
+export type Mastering = {
+    matchGain: number
+    finalAmplitude: number
+    /** 2049 little-endian float32 gains, mid */
+    midCurve: Int8Array
+    /** 2049 little-endian float32 gains, side */
+    sideCurve: Int8Array
+    referenceName?: string
+    /** How much of the match curve plays, 0 to 1 */
+    amount?: number
+    /** Into the limiter, -12 to 12 dB */
+    gain?: number
+    /** Side level, 0 to 2 */
+    width?: number
+    /** The limiter's sample-peak ceiling, -6 to 0 dB */
+    ceiling?: number
+    limiter?: boolean
 }
 
 /**

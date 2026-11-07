@@ -96,9 +96,8 @@ export const boot = async ({workersUrl, workletsUrl, wasmProcessorUrl, wasmOffli
         processorUrl: wasmProcessorUrl,
         offlineWorkerUrl: wasmOfflineWorkerUrl,
         wasmUrl: `${import.meta.env.BASE_URL}wasm-engine`,
-        // the booth and the engine play songs a program wrote, which never use the mastering device (its wasm is a Rust
-        // build of its own)
-        extraDevices: isBooth() || isEngine() ? [] : [{url: MasteringDeviceUrl, boxType: MasteringDeviceBoxType}]
+        // a song's master is this device on every page that plays it: one truth for what the song sounds like
+        extraDevices: [{url: MasteringDeviceUrl, boxType: MasteringDeviceBoxType}]
     })
     if (!await WasmEngine.ensureReady(context)) {
         document.querySelector("#preloader")?.remove()
