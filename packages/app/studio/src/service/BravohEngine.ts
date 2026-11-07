@@ -107,8 +107,8 @@ const loaded = (what: string, loader: Loader, watch: RenderWatch): Promise<void>
 const soundsOf = async (service: StudioService, boxGraph: BoxGraph, watch: RenderWatch): Promise<void> => {
     const loads = await Promise.allSettled(boxGraph.boxes().flatMap(box => {
         const uuid = box.address.uuid, id = UUID.toString(uuid)
-        return box.name === "AudioFileBox" ? [loaded(`sample ${id}`, service.sampleManager.getOrCreate(uuid) as any, watch)]
-            : box.name === "SoundfontFileBox" ? [loaded(`soundfont ${id}`, service.soundfontManager.getOrCreate(uuid) as any, watch)] : []
+        return box.name === "AudioFileBox" ? [loaded(`sample ${id}`, service.sampleManager.ask(uuid) as any, watch)]
+            : box.name === "SoundfontFileBox" ? [loaded(`soundfont ${id}`, service.soundfontManager.ask(uuid) as any, watch)] : []
     }))
     const failed = loads.flatMap(load => load.status === "rejected" ? [String(load.reason?.message ?? load.reason)] : [])
     if (failed.length > 0) {throw new Error(`Some sounds of the song did not load, so the render would be missing them: ${failed.join("; ")}`)}

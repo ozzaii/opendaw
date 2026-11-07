@@ -22,5 +22,11 @@ export class GlobalSoundfontLoaderManager implements SoundfontLoaderManager, Sou
         return this.#loaders.getOrCreate(uuid, uuid => new DefaultSoundfontLoader(this, uuid))
     }
 
+    // As the sample manager's `ask`: a press asks again for what failed, a paint only reads.
+    ask(uuid: UUID.Bytes): SoundfontLoader {
+        if (this.getOrCreate(uuid).state.type === "error") {this.invalidate(uuid)}
+        return this.getOrCreate(uuid)
+    }
+
     invalidate(uuid: UUID.Bytes) {this.#loaders.opt(uuid).ifSome(loader => loader.invalidate())}
 }
