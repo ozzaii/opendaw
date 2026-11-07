@@ -1,0 +1,125 @@
+{
+ "name": "safari",
+ "scenario": "pass",
+ "label": "safari-pass2",
+ "version": "26.6.2",
+ "load": {
+  "scriptMs": 1668,
+  "pressToSoundMs": -1794042806765,
+  "playToSoundMs": null,
+  "marks": {
+   "script": 57,
+   "contextRunning": 324,
+   "projectBuilt": 287,
+   "engineReady": 324,
+   "pressed": 107,
+   "roomSynced": 213,
+   "engineCompiled": 190,
+   "samplesLoaded": 558
+  },
+  "fetched": 13,
+  "sampleMB": 105.5,
+  "failed": [
+   "c973b44e-5499-4092-9fe0-cc942b15850a: Storage not available (UnknownError: The operation failed for an unknown transient reason (e.g. out of memory).)",
+   "862a4b22-b8a4-4996-9f46-3aa86dc80318: Storage not available (UnknownError: The operation failed for an unknown transient reason (e.g. out of memory).)",
+   "a2b97ca1-f6bd-4074-8f8c-1ccf6eb61f5c: Storage not available (UnknownError: The operation failed for an unknown transient reason (e.g. out of memory).)",
+   "9ee84af6-5d8f-4c3c-9316-1c82d3839154: Storage not available (UnknownError: The operation failed for an unknown transient reason (e.g. out of memory).)",
+   "15a1ec79-7b55-4954-852b-467c1e05a13f: Storage not available (UnknownError: The operation failed for an unknown transient reason (e.g. out of memory).)",
+   "7468c5e7-7168-46be-a0e3-ccb49d9018a4: Storage not available (UnknownError: The operation failed for an unknown transient reason (e.g. out of memory).)",
+   "4ab8207b-5727-47a4-bad4-9781b526dde9: Storage not available (UnknownError: The operation failed for an unknown transient reason (e.g. out of memory).)",
+   "ded27e48-c9b9-4f58-ac02-2286d59f9e6b: Storage not available (UnknownError: The operation failed for an unknown transient reason (e.g. out of memory).)",
+   "6531a493-6895-4fd2-870c-8137fd02f037: Storage not available (UnknownError: The operation failed for an unknown transient reason (e.g. out of memory).)",
+   "c1352a99-9e35-496d-916a-454e7dd9791e: Storage not available (UnknownError: The operation failed for an unknown transient reason (e.g. out of memory).)",
+   "2f379938-4238-2e13-4470-49ac6947b782: Storage not available (UnknownError: The operation failed for an unknown transient reason (e.g. out of memory).)",
+   "82d94485-dc82-4861-8158-fdb32144219a: Storage not available (UnknownError: The operation failed for an unknown transient reason (e.g. out of memory).)",
+   "21e12485-4f04-4c16-b164-a75d1d2c84db: Storage not available (UnknownError: The operation failed for an unknown transient reason (e.g. out of memory).)"
+  ],
+  "firstPlayStalls": []
+ },
+ "footprint": "com.apple.WebKit.WebContent [7880]: 64-bit    Footprint: 361 MB (16384 bytes per page)\n    phys_footprint: 361 MB\n    phys_footprint_peak: 803 MB",
+ "usage": {
+  "coreaudiod": {
+   "cpuPct": 1,
+   "rssMB": 58
+  },
+  "gpu": {
+   "cpuPct": 0.6,
+   "rssMB": 48
+  },
+  "net": {
+   "cpuPct": 0,
+   "rssMB": 200
+  },
+  "page": {
+   "cpuPct": 111.2,
+   "rssMB": 948
+  }
+ },
+ "peak rss MB": {
+  "coreaudiod": 58,
+  "gpu": 48,
+  "net": 200,
+  "page": 947
+ },
+ "clock": {
+  "audioSec": 215.893,
+  "wallSec": 216.582,
+  "lostMs": 689
+ },
+ "blocks": {
+  "n": 80635,
+  "avgMs": 0.182,
+  "maxMs": 3.74,
+  "budgetMs": 2.67,
+  "avgPct": 6.8,
+  "overBudget": 1,
+  "hist": [
+   79681,
+   938,
+   12,
+   2,
+   0,
+   0,
+   1,
+   0,
+   0,
+   0,
+   0,
+   1
+  ]
+ },
+ "stalls >15ms": [
+  165,
+  103,
+  212,
+  190
+ ],
+ "stalls >30ms": [
+  165,
+  103,
+  212,
+  190
+ ],
+ "stalls >50ms": [
+  165,
+  103,
+  212,
+  190
+ ],
+ "stalls >100ms": [
+  165,
+  103,
+  212,
+  190
+ ],
+ "context": {
+  "baseLatency": 0.0026666666666666666,
+  "state": "running",
+  "stats": null,
+  "sampleRate": 48000,
+  "outputLatency": 0
+ },
+ "frames": 10363904,
+ "sent": "82911232",
+ "main thread busy 1 s x5, stalls >30ms": []
+}

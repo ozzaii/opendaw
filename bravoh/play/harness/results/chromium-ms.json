@@ -1,0 +1,124 @@
+{
+ "name": "chromium",
+ "scenario": "ms",
+ "label": "chromium-ms",
+ "version": "156.0.8078.4",
+ "load": {
+  "scriptMs": 1613,
+  "pressToSoundMs": 1878,
+  "playToSoundMs": 18,
+  "marks": {
+   "script": 91,
+   "pressed": 196,
+   "engineCompiled": 252,
+   "roomSynced": 277,
+   "projectBuilt": 349,
+   "engineReady": 388,
+   "contextRunning": 388,
+   "samplesLoaded": 2051
+  },
+  "fetched": 13,
+  "sampleMB": 105.5,
+  "failed": [],
+  "firstPlayStalls": []
+ },
+ "lanes pressed": 12,
+ "muteAll": {
+  "n": 12,
+  "min": 4,
+  "median": 13,
+  "max": 33,
+  "all": [
+   24,
+   10,
+   13,
+   33,
+   11,
+   14,
+   10,
+   4,
+   14,
+   12,
+   13,
+   16
+  ]
+ },
+ "unmuteAll": {
+  "n": 12,
+  "min": 11,
+  "median": 15,
+  "max": 18,
+  "all": [
+   13,
+   15,
+   16,
+   13,
+   15,
+   13,
+   18,
+   18,
+   11,
+   16,
+   13,
+   13
+  ]
+ },
+ "solo": {
+  "n": 12,
+  "min": 1,
+  "median": 7,
+  "max": 26,
+  "all": [
+   6,
+   8,
+   6,
+   7,
+   8,
+   13,
+   6,
+   6,
+   9,
+   26,
+   1,
+   7
+  ]
+ },
+ "unsolo": {
+  "n": 12,
+  "min": 4,
+  "median": 14,
+  "max": 18,
+  "all": [
+   4,
+   17,
+   18,
+   16,
+   8,
+   11,
+   12,
+   14,
+   14,
+   15,
+   14,
+   14
+  ]
+ },
+ "song version before/after": [
+  1,
+  1
+ ],
+ "context": {
+  "state": "running",
+  "sampleRate": 48000,
+  "baseLatency": 0.021333333333333333,
+  "outputLatency": 0.048,
+  "stats": {
+   "underrunEvents": 1,
+   "underrunDuration": 0.02133,
+   "totalDuration": 29.115389999999998,
+   "averageLatency": 0.04387,
+   "minimumLatency": 0,
+   "maximumLatency": 0.04474
+  }
+ }
+}
