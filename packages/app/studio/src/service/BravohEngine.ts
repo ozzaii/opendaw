@@ -189,7 +189,7 @@ const renderOnce = async (service: StudioService, bytes: ArrayBufferLike, sample
 const SILENT_PEAK = 1e-6
 // `AudioBounce.withRelease`'s two numbers (its module's own): the longest a release runs past the song, and its fade.
 const AUDIBLE_RELEASE = 6, RELEASE_FADE = 1.5
-let stemsTold: { stems: string, sampleRate: int, frames: int, files: ReadonlyArray<unknown>, muted: ReadonlyArray<string>, silent: ReadonlyArray<string>, groups: ReadonlyArray<string>, took: Record<string, number> } | undefined
+let stemsTold: { stems: string, sampleRate: int, frames: int, files: ReadonlyArray<unknown>, muted: ReadonlyArray<string>, silent: ReadonlyArray<string>, took: Record<string, number> } | undefined
 /**
  * THE SONG'S LANES, ONE FILE EACH, from one pass (`ScriptAnswers.renderStems`), into the store one by one. Whole song from
  * bar 1 whatever the loop says, on the bounce's own path (`tail`): measured 7 Nov on a 213 s song, its mix tap is the plain
@@ -215,20 +215,22 @@ const stemsOnce = async (service: StudioService, bytes: ArrayBufferLike, sampleR
             said = done
             void post(`stems/${id}?done=${done.toFixed(3)}`, "").catch(() => {})
         })
-        const {audio, stems, muted, groups} = await ScriptAnswers.renderStems(service, bytes, sampleRate,
+        const {audio, stems, muted} = await ScriptAnswers.renderStems(service, bytes, sampleRate,
             whole, {progress, abortSignal: watch.signal, listeners: {wait: watch.wait}})
         saying.terminate()
         took.renderMs = Math.round(performance.now() - began) - took.soundsMs
         const song = Math.round(PPQN.pulsesToSeconds(whole.end - whole.start, bpm.getValue()) * sampleRate)
         // `withRelease`'s cut, in place: its copy is the whole render again, 2 GB on 20 lanes of 4 min.
         const most = Math.min(audio.numberOfFrames, song + Math.round(AUDIBLE_RELEASE * sampleRate))
-        const length = AudioBounce.releasedLength(audio.frames, Math.min(song, most), most)
+        // The mix's release, as the bounce reads it: over every stem's channels a hot lane raised the floor and cut 252 ms (7 Nov).
+        const mix = stems.findIndex(stem => stem.kind === "mix") * 2
+        const length = AudioBounce.releasedLength(audio.frames.slice(mix, mix + 2), Math.min(song, most), most)
         const fade = most < audio.numberOfFrames && length === most ? Math.min(length - song, Math.round(RELEASE_FADE * sampleRate)) : 0
         for (let index = 1; index <= fade; index++) {
             audio.frames.forEach(channel => channel[length - index] *= (index - 1) / fade)
         }
         const posting = performance.now()
-        const files: Array<{ file: int, name: string, kind: string }> = []
+        const files: Array<{ file: int, name: string, kind: string, of?: ReadonlyArray<string> }> = []
         const silent: Array<string> = []
         for (let at = 0; at < stems.length; at++) {
             const [left, right] = [audio.frames[at * 2].subarray(0, length), audio.frames[at * 2 + 1].subarray(0, length)]
@@ -240,11 +242,11 @@ const stemsOnce = async (service: StudioService, bytes: ArrayBufferLike, sampleR
             await post(`stems/${id}/${at}`, WavFile.encodeFloats({
                 sampleRate, numberOfFrames: length, numberOfChannels: 2, frames: [left, right]
             } as AudioData))
-            files.push({file: at, name: stems[at].name, kind: stems[at].kind})
+            files.push({file: at, ...stems[at]})
         }
         took.postMs = Math.round(performance.now() - posting)
         await post(`renders-note`, JSON.stringify({took}))
-        stemsTold = {stems: id, sampleRate, frames: length, files, muted, silent, groups, took}
+        stemsTold = {stems: id, sampleRate, frames: length, files, muted, silent, took}
     })
     // A second reader joined the first's render, so the answer is the render's, not this call's.
     return stemsTold?.stems === id ? stemsTold : Promise.reject(new Error("The stems were rendered and overtaken: ask again."))

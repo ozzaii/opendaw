@@ -40,12 +40,13 @@ export namespace ScriptAnswers {
         }
     }
 
-    export type Stem = { name: string, kind: "lane" | "return" | "mix" }
-    export type Stems = { audio: AudioData, stems: ReadonlyArray<Stem>, muted: ReadonlyArray<string>, groups: ReadonlyArray<string> }
+    export type Stem = { name: string, kind: "lane" | "group" | "return" | "mix", of?: ReadonlyArray<string> }
+    export type Stems = { audio: AudioData, stems: ReadonlyArray<Stem>, muted: ReadonlyArray<string> }
     // ONE PASS, EVERY LANE: the engine's own stem export taps each unit after its fader inside the mixdown it runs anyway, delay
     // compensated to the master (crates/engine/src/lib.rs `stem_compensation`), so the graph that plays is the graph that is
     // tapped: a side-chain still ducks and a send still reaches its return. The output unit is one more tap: the mix itself.
-    // A group is left out: its tap holds the lanes that have their own file, and a pack that adds up twice lines up with nothing.
+    // A group has its tap too, and names what it holds: its lanes' taps lack its processing (-14.9 dB against the song, 7 Nov), so
+    // the song is the lanes outside groups, the groups and the returns. A lane under a muted group is muted: it is not in the song.
     export const renderStems = async (env: ProjectEnv, buffer: ArrayBufferLike, sampleRate: int, section: MixdownSection, {progress, abortSignal, listeners}: {
         progress?: DefaultObservableValue<number>, abortSignal?: AbortSignal, listeners?: OfflineEngineListeners
     } = {}): Promise<Stems> => {
@@ -53,7 +54,15 @@ export namespace ScriptAnswers {
         try {
             const units = project.rootBoxAdapter.audioUnits.adapters()
             const label = (unit: typeof units[number]) => unit.input.label.unwrapOrElse(unit.type)
-            const heard = units.filter(unit => unit.isOutput || (unit.type !== AudioUnitType.Bus && !unit.box.mute.getValue()))
+            const busOf = (unit: typeof units[number]) => {
+                const bus = unit.output.adapter.unwrapOrNull()?.audioUnitBoxAdapter()
+                return bus === undefined || bus.isOutput ? null : bus
+            }
+            const silenced = (unit: typeof units[number]): boolean => {
+                const bus = busOf(unit)
+                return unit.box.mute.getValue() || (bus !== null && silenced(bus))
+            }
+            const heard = units.filter(unit => unit.isOutput || !silenced(unit))
             const configuration: ExportConfiguration = {
                 stems: Object.fromEntries(heard.map(unit => [UUID.toString(unit.uuid), {
                     includeAudioEffects: true, includeSends: true, useInstrumentOutput: false, fileName: label(unit)
@@ -63,9 +72,13 @@ export namespace ScriptAnswers {
                 progress ?? new DefaultObservableValue(0.0), abortSignal, sampleRate, listeners)
             return {
                 audio,
-                stems: heard.map(unit => ({name: label(unit), kind: unit.isOutput ? "mix" : unit.type === AudioUnitType.Aux ? "return" : "lane"})),
-                muted: units.filter(unit => !unit.isOutput && unit.box.mute.getValue()).map(label),
-                groups: units.filter(unit => !unit.isOutput && unit.type === AudioUnitType.Bus).map(label)
+                stems: heard.map(unit => unit.type === AudioUnitType.Bus && !unit.isOutput
+                    ? {name: label(unit), kind: "group", of: heard.filter(other => {
+                        const bus = busOf(other)
+                        return bus !== null && UUID.equals(bus.uuid, unit.uuid)
+                    }).map(label)}
+                    : {name: label(unit), kind: unit.isOutput ? "mix" : unit.type === AudioUnitType.Aux ? "return" : "lane"}),
+                muted: units.filter(unit => !unit.isOutput && silenced(unit)).map(label)
             }
         } finally {
             project.terminate()
