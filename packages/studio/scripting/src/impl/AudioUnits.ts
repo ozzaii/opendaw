@@ -1,4 +1,4 @@
-import {AudioBusBox, AudioUnitBox, AuxSendBox, TrackBox} from "@opendaw/studio-boxes"
+import {AudioBusBox, AudioUnitBox, AuxSendBox, MasteringDeviceBox, TrackBox} from "@opendaw/studio-boxes"
 import {Box, Field, IndexedBox} from "@opendaw/lib-box"
 import {AudioSendRouting, AudioUnitType, IconSymbol, Pointers} from "@opendaw/studio-enums"
 import {AudioUnitFactory, InstrumentFactories, ProjectQueries, TrackType} from "@opendaw/studio-adapters"
@@ -18,6 +18,7 @@ import {
     GroupAudioUnit,
     InstrumentAudioUnit,
     Instruments,
+    Mastering,
     MIDIEffects,
     NoteTrack,
     OutputAudioUnit,
@@ -244,6 +245,39 @@ export class OutputAudioUnitImpl extends BusAudioUnitFacade implements OutputAud
     readonly kind = "output" as const
 
     constructor(context: Context, box: AudioUnitBox) {super(context, box)}
+
+    get mastering(): Nullable<Mastering> {
+        const [pointer] = this.box.mastering.pointerHub.incoming()
+        if (!isDefined(pointer)) {return null}
+        const box = asInstanceOf(pointer.box, MasteringDeviceBox)
+        return {
+            matchGain: box.matchGain.getValue(), finalAmplitude: box.finalAmplitude.getValue(),
+            midCurve: box.midCurve.getValue(), sideCurve: box.sideCurve.getValue(), referenceName: box.referenceName.getValue(),
+            amount: box.amount.getValue(), gain: box.gain.getValue(), width: box.width.getValue(),
+            ceiling: box.ceiling.getValue(), limiter: box.limiter.getValue()
+        }
+    }
+
+    // One device on the output's own field, after the effect chain and before the fader (MasteringPanel writes the same box).
+    set mastering(value: Nullable<Mastering>) {
+        this.context.edit(() => {
+            this.box.mastering.pointerHub.incoming().forEach(pointer => pointer.box.delete())
+            if (isNull(value)) {return}
+            MasteringDeviceBox.create(this.context.boxGraph, UUID.generate(), box => {
+                box.host.refer(this.box.mastering)
+                box.matchGain.setValue(value.matchGain)
+                box.finalAmplitude.setValue(value.finalAmplitude)
+                box.midCurve.setValue(value.midCurve)
+                box.sideCurve.setValue(value.sideCurve)
+                box.referenceName.setValue(value.referenceName ?? "")
+                if (isDefined(value.amount)) {box.amount.setValue(value.amount)}
+                if (isDefined(value.gain)) {box.gain.setValue(value.gain)}
+                if (isDefined(value.width)) {box.width.setValue(value.width)}
+                if (isDefined(value.ceiling)) {box.ceiling.setValue(value.ceiling)}
+                if (isDefined(value.limiter)) {box.limiter.setValue(value.limiter)}
+            })
+        })
+    }
 }
 
 export type AnyAudioUnitImpl = InstrumentAudioUnitImpl | AuxAudioUnitImpl | GroupAudioUnitImpl | OutputAudioUnitImpl
