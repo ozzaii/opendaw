@@ -1,0 +1,59 @@
+{
+ "name": "safari",
+ "scenario": "pass",
+ "label": "safari-control2",
+ "version": "26.6.2",
+ "load": {
+  "joined": {
+   "control": true,
+   "storeFailed": 0
+  }
+ },
+ "context at start": {
+  "baseLatency": 0.0026666666666666666,
+  "state": "running",
+  "stats": null,
+  "sampleRate": 48000,
+  "outputLatency": 0
+ },
+ "footprint": "com.apple.WebKit.WebContent [601]: 64-bit    Footprint: 312 MB (16384 bytes per page)\n    phys_footprint: 312 MB\n    phys_footprint_peak: 613 MB",
+ "usage": {
+  "coreaudiod": {
+   "cpuPct": 1.1,
+   "rssMB": 58
+  },
+  "gpu": {
+   "cpuPct": 0.5,
+   "rssMB": 54
+  },
+  "net": {
+   "cpuPct": 0,
+   "rssMB": 162
+  },
+  "page": {
+   "cpuPct": 2,
+   "rssMB": 354
+  }
+ },
+ "peak rss MB": {},
+ "clock": {
+  "audioSec": 216.349,
+  "wallSec": 216.445,
+  "lostMs": 96
+ },
+ "stalls >30ms": [
+  70
+ ],
+ "stalls >50ms": [
+  70
+ ],
+ "stalls >100ms": [],
+ "context": {
+  "baseLatency": 0.0026666666666666666,
+  "state": "running",
+  "stats": null,
+  "sampleRate": 48000,
+  "outputLatency": 0
+ },
+ "done": true
+}

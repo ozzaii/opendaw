@@ -33,7 +33,7 @@ const TYPES = {".html": "text/html", ".js": "text/javascript", ".mjs": "text/jav
 // The booth page (the studio app at the root, it asks for its files from "/"; the slim page at /booth/) and the engine's wasm,
 // cross-origin isolated (the engine needs SharedArrayBuffer). No token: no data.
 const serveStatic = async (path, response) => {
-  const root = path.startsWith("/booth/") || path.startsWith("/wasm/") ? STATIC : join(STATIC, "studio")
+  const root = path.startsWith("/booth/") || path.startsWith("/wasm/") || path.startsWith("/play/") ? STATIC : join(STATIC, "studio")
   const file = normalize(join(root, path))
   if (!file.startsWith(normalize(root))) return send(response, 404, {why: "no such file"})
   const bytes = await readFile(file.endsWith("/") ? join(file, "index.html") : file).catch(() => null)
@@ -218,6 +218,14 @@ export const server = createServer(async (request, response) => {
       const room = await serial(key, async () => song.room((name, graph) => openRoom(rooms.url, name, graph)))
       return room ? send(response, 200, {room, ws: "/rooms", name: song.name}) : send(response, 404, {why: "no song"})
     }
+    // THE SONG'S GRAPH AS IT STANDS, for the engine in the artist's page: bytes, no room, nothing to write back through.
+    if (request.method === "GET" && method === "project") {
+      const song = await songOf(key)
+      const bytes = song.bytes()
+      if (!bytes) return send(response, 404, {why: "no song"})
+      response.writeHead(200, {"content-type": "application/octet-stream", "content-length": bytes.byteLength, "x-version": String(song.version)})
+      return response.end(new Uint8Array(bytes))
+    }
     if (request.method === "GET" && method === "version") return send(response, 200, {version: (await songOf(key)).version})
     // THE SONG AS THE PHONE PLAYS IT: the bounce the engine page rendered for this version of the song, or 409 and the
     // version to render (the API asks the engine host to bounce, then comes back).
@@ -286,7 +294,7 @@ export const server = createServer(async (request, response) => {
       if (!/^[0-9a-f-]{36}$/.test(uuid)) return send(response, 404, {why: "no such sample"})
       const bytes = await sampleBytes(key, uuid).catch(() => null)
       if (!bytes) return send(response, 404, {why: "no such sample"})
-      response.writeHead(200, {"content-type": "audio/wav"}); return response.end(bytes)
+      response.writeHead(200, {"content-type": "audio/wav", "content-length": bytes.byteLength}); return response.end(bytes)
     }
     if (request.method !== "POST") return send(response, 405, {why: "POST"})
     if (method === "renders") {

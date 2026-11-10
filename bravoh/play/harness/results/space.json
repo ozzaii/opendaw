@@ -1,0 +1,24 @@
+{
+ "onBuses": [
+  "Reverse: RevampDeviceBox",
+  "Space: RevampDeviceBox",
+  "Echo: RevampDeviceBox",
+  "Reverse: ConvolverDeviceBox",
+  "Space: DattorroReverbDeviceBox",
+  "Reverse: WerkstattDeviceBox",
+  "Reverse: StereoToolDeviceBox",
+  "Echo: DelayDeviceBox"
+ ],
+ "wholeMix": {
+  "signalDb": -12.8,
+  "leftDb": -28.1,
+  "nullDb": -15.3,
+  "lagFrames": 0
+ },
+ "spaceMuted": {
+  "signalDb": -12.8,
+  "leftDb": -126.8,
+  "nullDb": -114,
+  "lagFrames": 0
+ }
+}

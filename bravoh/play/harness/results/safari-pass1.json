@@ -1,0 +1,137 @@
+{
+ "name": "safari",
+ "scenario": "pass",
+ "label": "safari-pass1",
+ "version": "26.6.2",
+ "load": {
+  "scriptMs": 2129,
+  "pressToSoundMs": 1002,
+  "playToSoundMs": 17,
+  "marks": {
+   "script": 144,
+   "contextRunning": 473,
+   "projectBuilt": 434,
+   "engineReady": 473,
+   "pressed": 205,
+   "roomSynced": 348,
+   "engineCompiled": 314,
+   "samplesLoaded": 1176
+  },
+  "fetched": 13,
+  "sampleMB": 105.5,
+  "failed": [],
+  "firstPlayStalls": []
+ },
+ "context at start": {
+  "baseLatency": 0.0026666666666666666,
+  "state": "running",
+  "stats": null,
+  "sampleRate": 48000,
+  "outputLatency": 0
+ },
+ "footprint": "com.apple.WebKit.WebContent [1497]: 64-bit    Footprint: 536 MB (16384 bytes per page)\n    phys_footprint: 536 MB\n    phys_footprint_peak: 931 MB",
+ "usage": {
+  "coreaudiod": {
+   "cpuPct": 2,
+   "rssMB": 60
+  },
+  "gpu": {
+   "cpuPct": 1.1,
+   "rssMB": 52
+  },
+  "net": {
+   "cpuPct": 0.1,
+   "rssMB": 75
+  },
+  "page": {
+   "cpuPct": 117,
+   "rssMB": 1077
+  }
+ },
+ "peak rss MB": {
+  "coreaudiod": 60,
+  "gpu": 52,
+  "net": 76,
+  "page": 1076
+ },
+ "clock": {
+  "audioSec": 214.843,
+  "wallSec": 216.914,
+  "lostMs": 2071
+ },
+ "blocks": {
+  "n": 80155,
+  "avgMs": 0.278,
+  "maxMs": 3.62,
+  "budgetMs": 2.67,
+  "avgPct": 10.4,
+  "overBudget": 3,
+  "hist": [
+   43719,
+   35436,
+   863,
+   80,
+   28,
+   13,
+   9,
+   2,
+   1,
+   1,
+   0,
+   3
+  ]
+ },
+ "stalls >30ms": [
+  167,
+  38,
+  46,
+  201,
+  120,
+  68,
+  214,
+  212,
+  90,
+  168,
+  119,
+  252,
+  227,
+  75
+ ],
+ "stalls >50ms": [
+  167,
+  201,
+  120,
+  68,
+  214,
+  212,
+  90,
+  168,
+  119,
+  252,
+  227,
+  75
+ ],
+ "stalls >100ms": [
+  167,
+  201,
+  120,
+  214,
+  212,
+  168,
+  119,
+  252,
+  227
+ ],
+ "context": {
+  "baseLatency": 0.0026666666666666666,
+  "state": "running",
+  "stats": null,
+  "sampleRate": 48000,
+  "outputLatency": 0
+ },
+ "frames": 10313600,
+ "sent": "82508800",
+ "main thread busy 1 s x5, stalls >30ms": [
+  184
+ ]
+}

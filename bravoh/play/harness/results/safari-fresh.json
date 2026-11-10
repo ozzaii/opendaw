@@ -1,0 +1,78 @@
+{
+ "name": "safari",
+ "scenario": "pass",
+ "label": "safari-fresh",
+ "version": "26.6.2",
+ "load": {
+  "scriptMs": 1756,
+  "pressToSoundMs": 1241,
+  "playToSoundMs": 8,
+  "marks": {
+   "script": 64,
+   "contextRunning": 402,
+   "projectBuilt": 359,
+   "engineReady": 402,
+   "pressed": 162,
+   "roomSynced": 275,
+   "engineCompiled": 248,
+   "samplesLoaded": 1382
+  },
+  "fetched": 13,
+  "sampleMB": 105.5,
+  "failed": [],
+  "firstPlayStalls": []
+ },
+ "context at start": {
+  "baseLatency": 0.0026666666666666666,
+  "state": "running",
+  "stats": null,
+  "sampleRate": 48000,
+  "outputLatency": 0
+ },
+ "footprint": "com.apple.WebKit.WebContent [3834]: 64-bit    Footprint: 562 MB (16384 bytes per page)\n    phys_footprint: 562 MB\n    phys_footprint_peak: 838 MB",
+ "usage": {
+  "coreaudiod": {
+   "cpuPct": 0.8,
+   "rssMB": 58
+  },
+  "gpu": {
+   "cpuPct": 0.5,
+   "rssMB": 54
+  },
+  "net": {
+   "cpuPct": 0,
+   "rssMB": 75
+  },
+  "page": {
+   "cpuPct": 12.2,
+   "rssMB": 1086
+  }
+ },
+ "peak rss MB": {},
+ "clock": {
+  "audioSec": 216.211,
+  "wallSec": 216.499,
+  "lostMs": 288
+ },
+ "stalls >30ms": [
+  104,
+  180
+ ],
+ "stalls >50ms": [
+  104,
+  180
+ ],
+ "stalls >100ms": [
+  104,
+  180
+ ],
+ "context": {
+  "baseLatency": 0.0026666666666666666,
+  "state": "running",
+  "stats": null,
+  "sampleRate": 48000,
+  "outputLatency": 0
+ },
+ "frames": 10379136,
+ "sent": "83033088"
+}
