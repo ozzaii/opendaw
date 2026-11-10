@@ -2307,7 +2307,7 @@ export type ValueEventProps = Partial<Pick<ValueEvent, "position" | "value" | "i
 export interface ValueEventOwner {
     /** All events sorted by position */
     readonly events: ReadonlyArray<ValueEvent>
-    /** Add an automation point (defaults: position 0, value 0, linear). Two points at the same position form a step */
+    /** Add an automation point (defaults: position 0, value 0, linear). Two points at the same position form a step; a third replaces the second, the value leaving */
     addEvent(props?: ValueEventProps): ValueEvent
     /** Add many points at once */
     addEvents(events: ReadonlyArray<ValueEventProps>): ReadonlyArray<ValueEvent>

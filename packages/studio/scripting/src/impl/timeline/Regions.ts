@@ -147,7 +147,8 @@ export namespace Regions {
         list(context, trackBox).forEach(region => {
             if (region instanceof AudioRegionImpl && region.box.timeBase.getValue() === TimeBase.Seconds) {return}
             if (region.position < complete && region.complete > position) {
-                return panic(new RangeError(`Region [${position}, ${complete}] overlaps existing region '${region.label}' [${region.position}, ${region.complete}]`))
+                // The refusal carries the move that was meant: a track plays one region at a time, so what sits there gives way first.
+                return panic(new RangeError(`Region [${position}, ${complete}] overlaps existing region '${region.label}' [${region.position}, ${region.complete}]: a track plays one region at a time, so cut '${region.label}' around [${position}, ${complete}] first (its duration ends it at ${position}, and what plays after ${complete} is a new region there${region instanceof AudioRegionImpl ? " with waveformOffset" : " with mirror and loopOffset"}), or give this region a track of its own`))
             }
         })
     }

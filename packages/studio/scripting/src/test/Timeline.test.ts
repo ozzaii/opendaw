@@ -65,6 +65,7 @@ describe("Timeline", () => {
         const track = project.addInstrumentUnit("Vaporisateur").noteTracks[0]
         track.addRegion({position: 0, duration: PPQN.Bar})
         expect(() => track.addRegion({position: PPQN.Bar / 2, duration: PPQN.Bar})).toThrow(RangeError)
+        expect(() => track.addRegion({position: PPQN.Bar / 2, duration: PPQN.Bar})).toThrow(/cut '.*' around \[1920, 5760\] first/)
         expect(() => track.addRegion({position: PPQN.Bar, duration: 0})).toThrow(RangeError)
         expect(() => track.addRegion({position: PPQN.Bar, duration: -3})).toThrow(RangeError)
         const second = track.addRegion({position: PPQN.Bar, duration: PPQN.Bar})
@@ -132,7 +133,9 @@ describe("Timeline", () => {
         expect(region.events).toEqual([start, first, step])
         expect(first.interpolation).toEqual(Interpolation.Linear)
         expect(start.interpolation).toEqual(Interpolation.None)
-        expect(() => region.addEvent({position: PPQN.Bar, value: 0.5})).toThrow(RangeError)
+        const leaving = region.addEvent({position: PPQN.Bar, value: 0.5})
+        expect(region.events).toEqual([start, first, leaving])
+        expect(region.events.map(event => event.value)).toEqual([0.2, 0.8, 0.5].map(Math.fround))
         first.value = 3
         expect(first.value).toBe(3)
         expect(() => first.value = NaN).toThrow(TypeError)

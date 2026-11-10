@@ -120,13 +120,13 @@ export class ValueEvents {
         return this.#context.edit(() => {
             const position = Guard.integer(props?.position ?? 0, "event.position")
             const sharing = this.list().filter(event => event.position === position)
-            if (sharing.length >= 2) {
-                return panic(new RangeError(`event.position: at most two events can share position ${position}`))
-            }
+            // A position holds a step at most: the value arriving (index 0) and the value leaving (index 1).
+            // A later point at a full position is the new leaving value, as a DAW redraws a step's second point.
+            if (sharing.length >= 2) {sharing.slice(1).forEach(event => event.box.delete())}
             const box = ValueEventBox.create(this.#context.boxGraph, UUID.generate(), box => {
                 box.events.refer(this.#collection.events)
                 box.position.setValue(position)
-                box.index.setValue(sharing.length)
+                box.index.setValue(Math.min(sharing.length, 1))
                 box.slope.setValue(NaN)
             })
             const event = ValueEventImpl.wrap(this.#context, box)

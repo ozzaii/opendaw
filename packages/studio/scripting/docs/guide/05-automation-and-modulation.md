@@ -12,7 +12,7 @@ order: 5
 effects, sends or Playfield slots. A parameter has at most one lane per unit, `unit.valueTrack(target, path)`
 finds it.
 
-Points are normalized 0.0 to 1.0 over the parameter's range. Two points at the same position form a step.
+Points are normalized 0.0 to 1.0 over the parameter's range. Two points at the same position form a step; a third replaces the second, the value leaving.
 
 ```ts
 const lane = synth.addValueTrack(synth.instrument, "cutoff")
