@@ -1,6 +1,6 @@
 // THE SONG IN THE ARTIST'S PAGE: the engine bundle BRAVOH's page loads from /play/engine.js, never imports. AGPL-3.0, this fork.
 // The page gives it doors (it holds no token of the store's) and a context born in a press; it answers Play and M/S in place.
-import {Option, UUID} from "@opendaw/lib-std"
+import {Option, Subscription, UUID} from "@opendaw/lib-std"
 import {AnimationFrame} from "@opendaw/lib-dom"
 import {WavFile} from "@opendaw/lib-dsp"
 import {BoxGraph} from "@opendaw/lib-box"
@@ -77,6 +77,22 @@ export const openSong = async (doors: Doors, onSounds: (sounds: Sounds) => void)
     let project: Project | undefined
     let engineContext: AudioContext | undefined
     let worklet: AudioWorkletNode | undefined
+    // WHERE THE SONG STANDS, from openDAW's own transport anchors (sample-accurate, as its StudioFollowHost reads them): the last
+    // start or jump and the context time it sounded from, or the place asked for, unmoved, until the engine says it started there.
+    // `engine.position` is a frame's copy that reads 0 after a stop and on a project just swapped in.
+    let anchor: {beat: number, contextTime?: number} = {beat: 0}
+    let playing = false
+    let anchors: Subscription | undefined
+    const follow = (next: Project) => {
+        anchors?.terminate()
+        anchors = next.engine.subscribeTransportAnchors(list => {
+            for (const one of list) {if (one.kind !== "stop") {anchor = {beat: one.position / PPQN_BEAT, contextTime: one.contextTime}}}
+        })
+    }
+    const hold = (beat: number) => {anchor = {beat}}
+    // The place now, in beats: the anchor carried on by the context's clock while it plays.
+    const beatNow = () => !playing || anchor.contextTime === undefined ? anchor.beat
+        : anchor.beat + Math.max(0, engineContext!.currentTime - anchor.contextTime) * project!.timelineBox.bpm.getValue() / 60
     const stage = async () => {
         const context = engineContext!
         const next = Project.fromSkeleton({audioContext: context, audioWorklets: new AudioWorklets(context), sampleManager: manager,
@@ -106,16 +122,27 @@ export const openSong = async (doors: Doors, onSounds: (sounds: Sounds) => void)
             if (!await WasmEngine.ensureReady(context)) {throw new Error("the engine did not start")}
             const {next, node} = await stage()
             project = next; worklet = node
+            follow(next)
         },
         // A stop and a play in one tick start the reverb's LFO where a render does (research/native-play): the file and this are one sound.
         play: (beat: number) => {
             project!.engine.stop(true)
             project!.engine.setPosition(Math.round(beat * PPQN_BEAT))
             project!.engine.play()
+            playing = true; hold(beat)
         },
-        pause: () => project!.engine.stop(true),
-        seek: (beat: number) => project!.engine.setPosition(Math.round(beat * PPQN_BEAT)),
+        pause: () => {
+            project!.engine.stop(true)
+            playing = false; hold(0)
+        },
+        seek: (beat: number) => {
+            project!.engine.setPosition(Math.round(beat * PPQN_BEAT))
+            hold(beat)
+        },
         beat: () => project!.engine.position.getValue() / PPQN_BEAT,
+        // Where the engine renders: a beat and the context time it sounded there. The page carries it on by its clock.
+        place: () => engineContext && project
+            ? {beat: anchor.beat, contextTime: anchor.contextTime ?? engineContext.currentTime} : undefined,
         // The artist's hand, never written anywhere: this graph is the page's own copy.
         silence: (lanes: ReadonlyArray<{name: string, silent: boolean}>) => {
             const units = unitNamed()
@@ -143,10 +170,13 @@ export const openSong = async (doors: Doors, onSounds: (sounds: Sounds) => void)
             if (!engineContext) {return}
             const {next, node} = await stage()
             const was = project!, wasNode = worklet!
-            const at = was.engine.position.getValue(), playing = was.engine.isPlaying.getValue()
+            // From the anchors, never the old project's frame copy: one swapped in a moment ago still reads 0 (bar 1).
+            const at = Math.round(beatNow() * PPQN_BEAT)
             project = next; worklet = node
+            follow(next)
             next.engine.setPosition(at)
             if (playing) {next.engine.play()}
+            hold(at / PPQN_BEAT)
             wasNode.disconnect(); was.engine.stop(true); was.terminate()
         }
     }
