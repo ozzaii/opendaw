@@ -19,7 +19,17 @@ const hands = {
     engine.editing.modify(() => applyUpdateTasks(engine.graph, tasks)); engine.steps++
     return {applied: tasks.length}
   },
-  studio_mixdown: ({sampleRate = 48000}) => ({sampleRate, frames: [new Float32Array(4), new Float32Array(4)]}),
+  // as BRAVOH answers it: the render a float WAV in the room (the cwd), the wire only its name
+  studio_mixdown: async ({sampleRate = 48000}) => {
+    const {writeFile} = await import("node:fs/promises")
+    const wav = Buffer.alloc(44 + 4 * 2 * 4)
+    wav.write("RIFF", 0, "ascii"); wav.writeUInt32LE(36 + 32, 4); wav.write("WAVEfmt ", 8, "ascii"); wav.writeUInt32LE(16, 16)
+    wav.writeUInt16LE(3, 20); wav.writeUInt16LE(2, 22); wav.writeUInt32LE(sampleRate, 24); wav.writeUInt32LE(sampleRate * 8, 28)
+    wav.writeUInt16LE(8, 32); wav.writeUInt16LE(32, 34); wav.write("data", 36, "ascii"); wav.writeUInt32LE(32, 40)
+    for (let i = 0; i < 8; i++) wav.writeFloatLE(i % 2 ? -i / 8 : i / 8, 44 + i * 4)
+    await writeFile(".mixdown-proof.wav", wav)
+    return {file: ".mixdown-proof.wav", sampleRate}
+  },
   studio_samples: () => [],
 }
 // Code Mode's RPC shape: a JSON round trip each way, a thrown error becomes a failure the preamble reads.
@@ -60,3 +70,5 @@ candidate.findAudioUnit("808").volume = -20
 const audio = await candidate.mixdown()
 const live = await openDAW.getProject()
 log("candidate render / song untouched", [audio.numberOfChannels, live.findAudioUnit("808").volume])
+const {existsSync} = await import("node:fs")
+log("render read from the room, then gone", [[...audio.frames[0]], [...audio.frames[1]], existsSync(".mixdown-proof.wav")])

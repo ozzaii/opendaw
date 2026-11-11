@@ -18,3 +18,27 @@ export const decode = text => JSON.parse(text, (_key, item) => {
   if (!Type) throw new TypeError(`wire: unknown type ${item.$t}`)
   return new Type(buffer)
 })
+// A mixdown BRAVOH left in the room, the program's working directory, as a 32-bit float WAV: read once, then removed.
+// 11-11: on the wire it was 104 MB of base64 for a 3:24 song, and each such answer stood ~87 s before the next hand.
+export const fromRoom = async file => {
+  const {readFile, rm} = await import("node:fs/promises")
+  const bytes = await readFile(file)
+  await rm(file, {force: true}).catch(() => {})
+  let channels = 0, sampleRate = 0
+  for (let at = 12; at + 8 <= bytes.length;) {
+    const id = bytes.toString("ascii", at, at + 4), size = bytes.readUInt32LE(at + 4), body = at + 8
+    if (id === "fmt ") {channels = bytes.readUInt16LE(body + 2); sampleRate = bytes.readUInt32LE(body + 4)}
+    if (id === "data" && channels > 0) {
+      const count = Math.floor(Math.min(size, bytes.length - body) / 4 / channels), start = bytes.byteOffset + body
+      const samples = new Float32Array(bytes.buffer.slice(start, start + count * channels * 4))
+      const frames = Array.from({length: channels}, (_, c) => {
+        const channel = new Float32Array(count)
+        for (let i = 0; i < count; i++) channel[i] = samples[i * channels + c]
+        return channel
+      })
+      return {sampleRate, frames}
+    }
+    at = body + size + (size & 1)
+  }
+  throw new Error(`the mixdown ${file} holds no audio`)
+}

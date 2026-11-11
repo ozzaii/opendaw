@@ -2,7 +2,7 @@
 // is the program's own hands (external_studio_*), so the program is the script.
 import {ApiImpl, ScriptGlobals} from "@opendaw/studio-scripting"
 import {AudioData} from "@opendaw/lib-dsp"
-import {decode, encode} from "./wire.mjs"
+import {decode, encode, fromRoom} from "./wire.mjs"
 const hand = async (name, input) => {
   const call = globalThis[`external_${name}`]
   if (typeof call !== "function") throw new Error("The booth is not open on this turn: the studio's song cannot be reached from this program.")
@@ -25,7 +25,9 @@ const host = {
   addSample: (data, name) => hand("studio_samples", {add: {name, sampleRate: data.sampleRate, frames: [...data.frames]}}),
   listSamples: () => hand("studio_samples", {}),
   renderMixdown: async (buffer, options) => {
-    const {sampleRate, frames} = await hand("studio_mixdown", {project: buffer, sampleRate: options?.sampleRate})
+    const answer = await hand("studio_mixdown", {project: buffer, sampleRate: options?.sampleRate})
+    // a file of the room since 11-11 (BRAVOH's `studio-plumbing.ts`); frames on the wire from an older host or `mixNumbers`
+    const {sampleRate, frames} = answer.file ? await fromRoom(answer.file) : answer
     const audio = AudioData.create(sampleRate, frames[0]?.length ?? 0, frames.length)
     frames.forEach((channel, index) => audio.frames[index].set(channel))
     return audio

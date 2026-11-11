@@ -8,7 +8,9 @@ the program's own RPC hands: `external_studio_open`, `external_studio_apply`, `e
 
 - `openInStudio()` resolves when the host has applied the edit as one undo step. It rejects when the song changed
   since the program read it (the checksum guard of `ScriptHostProtocol.applyUpdates`).
-- `wire.mjs` carries the API's values (typed arrays, buffers, bigints) on a JSON wire.
+- `wire.mjs` carries the API's values (typed arrays, buffers, bigints) on a JSON wire. A mixdown does not ride it:
+  BRAVOH writes the render as a float WAV into the room, the program's working directory, and answers its name
+  (`{file, sampleRate}`); `fromRoom` reads it and removes it. Frames on the wire are still read, from an older host.
 - `proof.mjs` answers the four hands in-process and runs a build, an undo, a stale edit and an unapplied render.
 
 ```sh
