@@ -4,7 +4,7 @@ import {Option, UUID} from "@opendaw/lib-std"
 import {AnimationFrame} from "@opendaw/lib-dom"
 import {WavFile} from "@opendaw/lib-dsp"
 import {BoxGraph} from "@opendaw/lib-box"
-import {BoxIO} from "@opendaw/studio-boxes"
+import {BoxIO, StereoToolDeviceBox} from "@opendaw/studio-boxes"
 import {BpmDetector, ProjectSkeleton} from "@opendaw/studio-adapters"
 import {AudioWorklets, GlobalSampleLoaderManager, GlobalSoundfontLoaderManager, Project, SampleService, SoundfontService, Workers} from "@opendaw/studio-core"
 import WorkersUrl from "@opendaw/studio-core/workers-main.js?worker&url"
@@ -121,6 +121,20 @@ export const openSong = async (doors: Doors, onSounds: (sounds: Sounds) => void)
             const units = unitNamed()
             project!.boxGraph.beginTransaction()
             for (const lane of lanes) {units.get(lane.name)?.mute.setValue(lane.silent)}
+            project!.boxGraph.endTransaction()
+        },
+        // A lane's level as the song keeps it: the "Mix trim" StereoTool the mix table adds (BRAVOH `mixTable`), moved here
+        // by the same number, added where the lane has none. This graph is the page's own copy: nothing is written.
+        level: (name: string, db: number) => {
+            const unit = unitNamed().get(name)
+            if (!unit) {return}
+            const effects: any[] = unit.audioEffects.pointerHub.incoming().map((pointer: any) => pointer.box)
+            project!.boxGraph.beginTransaction()
+            const trim = effects.find(box => box.name === "StereoToolDeviceBox" && String(box.label.getValue()).startsWith("Mix trim"))
+                ?? StereoToolDeviceBox.create(project!.boxGraph as any, UUID.generate(), box => {
+                    box.label.setValue("Mix trim"); box.index.setValue(effects.length); box.host.refer(unit.audioEffects)
+                })
+            trim.volume.setValue(Math.max(-72, Math.min(12, db)))
             project!.boxGraph.endTransaction()
         },
         // A new version: its sounds fetched first, the old one plays until the swap. Answers whether this page has it.
