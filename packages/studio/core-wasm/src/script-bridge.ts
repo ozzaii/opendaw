@@ -75,6 +75,8 @@ class Bridge {
     // index -> label, for @sample slots (Apparat); the resolved sample handle is cached so a hot-swap re-delivers.
     sampleLabels = new Map<number, string>()
     readonly sampleHandles = new Map<number, number>() // index -> resolved engine sample handle (-1 = no sample; 0 is valid)
+    // index -> the AudioData last handed to the script, with what it was built from: the same sample is the same object
+    readonly sampleViews = new Map<number, {buffer: ArrayBufferLike, ptr: number, frames: number, channels: number, rate: number, data: unknown}>()
     sidechains: ReadonlyArray<SidechainDecl> = []
     sidechainViews: Record<string, ReadonlyArray<Float32Array>> = {}
     sidechainLookup: Record<string, ReadonlyArray<Float32Array>> = {}
@@ -517,11 +519,23 @@ export class ScriptBridges {
         const frameCount = view.getUint32(4, true)
         const channelCount = view.getUint32(8, true)
         const sampleRate = view.getFloat32(12, true)
+        // THE SAME SAMPLE IS THE SAME OBJECT from block to block, so a script may key work it does once on it: a new
+        // object each block re-ran BRAVOH's take-on-notes scan of the whole take every 128 frames, 79 of a song's 92 s
+        // offline render on 7 such lanes (11-11). New views only when the frames moved, changed or the memory grew.
+        const buffer = this.#memory.buffer
+        const kept = bridge.sampleViews.get(index)
+        if (kept !== undefined && kept.buffer === buffer && kept.ptr === framesPtr && kept.frames === frameCount
+            && kept.channels === channelCount && kept.rate === sampleRate) {
+            bridge.proc.samples[label] = kept.data
+            return
+        }
         const frames: Float32Array[] = []
         for (let channel = 0; channel < channelCount; channel++) {
-            frames.push(new Float32Array(this.#memory.buffer, framesPtr + channel * frameCount * 4, frameCount))
+            frames.push(new Float32Array(buffer, framesPtr + channel * frameCount * 4, frameCount))
         }
-        bridge.proc.samples[label] = {sampleRate, numberOfFrames: frameCount, numberOfChannels: channelCount, frames}
+        const data = {sampleRate, numberOfFrames: frameCount, numberOfChannels: channelCount, frames}
+        bridge.sampleViews.set(index, {buffer, ptr: framesPtr, frames: frameCount, channels: channelCount, rate: sampleRate, data})
+        bridge.proc.samples[label] = data
     }
 
     // Runs inside the device's `process`, while the engine has its resolved sidechain ports swapped in.
