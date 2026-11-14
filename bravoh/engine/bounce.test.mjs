@@ -33,17 +33,18 @@ test("a mix under the ceiling keeps its level", async () => {
   assert.ok(peakOf(bytes) > -15 && peakOf(bytes) < -12, String(peakOf(bytes))) // sine at -18 dB + noise, -9 dB
 })
 
-// 11-14: a hot 2-minute master took 25.3 s to encode, its other coders waiting for the first coder's last pass.
-test("a hot mix tries the other coders beside the first one's passes, and says what each took", async () => {
+// 11-15 (Kaan): one coder. A hot render makes that coder's runs only, under the ceiling, and the answer and the store's
+// line name the true peak the file reached.
+test("a hot render makes one coder's runs only, and the answer names its true peak", async () => {
   const took = {}
-  const began = Date.now()
-  await toM4a(floats(9), took)
-  const wall = Date.now() - began
-  const coders = Object.values(took)
-  assert.equal(coders.length, 3)
-  assert.ok(coders[0].passes >= 1 && coders[0].gainDb < 0, JSON.stringify(took))
-  const sum = coders.reduce((all, one) => all + one.encodeMs + one.peakMs, 0)
-  assert.ok(wall < sum, `${wall} ms against ${sum} ms one after another: ${JSON.stringify(took)}`)
+  const {bytes, peakDb, over} = await toM4a(floats(9), took)
+  assert.deepEqual(Object.keys(took), ["-q:a 1.5 -aac_pns 0 -aac_is 0"])
+  const [mine] = Object.values(took)
+  assert.ok(mine.passes >= 1 && mine.gainDb < 0, JSON.stringify(took))
+  assert.equal(mine.peakDb, peakDb)
+  assert.ok(peakDb <= -1, String(peakDb))
+  assert.equal(over, undefined)
+  assert.ok(Math.abs(peakOf(bytes) - peakDb) < 0.05, `${peakOf(bytes)} read, ${peakDb} named`)
   const cool = {}
   await toM4a(floats(-9), cool)
   assert.deepEqual(Object.values(cool).map(one => one.passes), [0])
