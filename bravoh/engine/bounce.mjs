@@ -19,32 +19,46 @@ const truePeak = async file => Number((await run(["-hide_banner", "-nostats", "-
 // signal make judged. This VBR with noise substitution and intensity stereo off: -1.7 dBTP, -8.0 LUFS, 3.5 MB (2.4).
 // A mix that make itself left over the ceiling gets one gain over the whole song, never a limiter.
 // The WAV goes out when ffmpeg cannot run (a dev machine without it): slower, never silent.
-export const toM4a = async wav => {
+// `took`: each coder's passes and gain, and the ms of its encodes and peak reads, for the store's `engine.encode` line.
+export const toM4a = async (wav, took = {}) => {
   const base = join(tmpdir(), `bounce-${randomUUID()}`)
   const m4a = `${base}.m4a`
   try {
     await writeFile(`${base}.wav`, wav)
     // One encode under the ceiling: one gain over the whole song, read again (the encoder is not linear), each pass a
-    // little more room. Returns the gain it took.
-    const under = async (file, coder) => {
+    // little more room. Returns the gain it took. `over` is told the moment the first read is over the ceiling.
+    const under = async (file, coder, over = () => {}) => {
+      const mine = took[coder.join(" ")] = {passes: 0, encodeMs: 0, peakMs: 0, gainDb: 0}
+      const timed = async (what, work) => {const began = Date.now(); try {return await work()} finally {mine[what] += Date.now() - began}}
       let gainDb = 0
-      await encode(`${base}.wav`, file, gainDb, coder)
-      for (let pass = 1, peak = await truePeak(file); pass <= 5 && peak > CEILING_DBTP; pass++, peak = await truePeak(file)) {
+      await timed("encodeMs", () => encode(`${base}.wav`, file, gainDb, coder))
+      let peak = await timed("peakMs", () => truePeak(file))
+      if (peak > CEILING_DBTP) over()
+      for (let pass = 1; pass <= 5 && peak > CEILING_DBTP; pass++) {
         gainDb += CEILING_DBTP - 0.1 * pass - peak
-        await encode(`${base}.wav`, file, gainDb, coder)
+        mine.passes = pass
+        await timed("encodeMs", () => encode(`${base}.wav`, file, gainDb, coder))
+        peak = await timed("peakMs", () => truePeak(file))
       }
+      mine.gainDb = Math.round(gainDb * 100) / 100
       return gainDb
     }
-    // Most bounces sit under the ceiling as they are: only a song the first encode had to turn down tries the others,
-    // and the one turned down least is kept, so the phone hears the loudness make judged.
-    const first = await under(m4a, CODERS[0])
-    if (first >= 0) return {bytes: await readFile(m4a), type: "audio/mp4"}
+    // Most bounces sit under the ceiling as they are: only a song the first encode had to turn down tries the others, and
+    // the one turned down least is kept, so the phone hears the loudness make judged. The others start the moment the first
+    // read is over the ceiling, beside the first coder's own passes, not after them: 11-14, a hot 2-minute master took
+    // 25.3 s to encode, 78% of a press's wait for its file.
     const others = CODERS.slice(1).map((coder, i) => ({coder, file: `${base}.${i + 1}.m4a`}))
+    let started
+    const startOthers = () => {started ??= Promise.all(others.map(({file, coder}) => under(file, coder)))}
     try {
-      const gains = await Promise.all(others.map(({file, coder}) => under(file, coder)))
+      const first = await under(m4a, CODERS[0], startOthers)
+      if (first >= 0) return {bytes: await readFile(m4a), type: "audio/mp4"}
+      startOthers()
+      const gains = await started
       const best = Math.max(...gains)
       return {bytes: await readFile(best > first ? others[gains.indexOf(best)].file : m4a), type: "audio/mp4"}
     } finally {
+      await started?.catch(() => {})
       await Promise.all(others.map(({file}) => rm(file, {force: true}).catch(() => {})))
     }
   } catch (error) {

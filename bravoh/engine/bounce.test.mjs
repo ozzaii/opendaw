@@ -32,3 +32,19 @@ test("a mix under the ceiling keeps its level", async () => {
   const {bytes} = await toM4a(floats(-9))
   assert.ok(peakOf(bytes) > -15 && peakOf(bytes) < -12, String(peakOf(bytes))) // sine at -18 dB + noise, -9 dB
 })
+
+// 11-14: a hot 2-minute master took 25.3 s to encode, its other coders waiting for the first coder's last pass.
+test("a hot mix tries the other coders beside the first one's passes, and says what each took", async () => {
+  const took = {}
+  const began = Date.now()
+  await toM4a(floats(9), took)
+  const wall = Date.now() - began
+  const coders = Object.values(took)
+  assert.equal(coders.length, 3)
+  assert.ok(coders[0].passes >= 1 && coders[0].gainDb < 0, JSON.stringify(took))
+  const sum = coders.reduce((all, one) => all + one.encodeMs + one.peakMs, 0)
+  assert.ok(wall < sum, `${wall} ms against ${sum} ms one after another: ${JSON.stringify(took)}`)
+  const cool = {}
+  await toM4a(floats(-9), cool)
+  assert.deepEqual(Object.values(cool).map(one => one.passes), [0])
+})

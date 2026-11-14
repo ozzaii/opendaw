@@ -343,11 +343,12 @@ export const server = createServer(async (request, response) => {
       // One encode per render: a later version with the same bytes, or a second reader, has the file already.
       if (song.encoded?.render !== render) {
         const began = Date.now()
-        const file = readFile(renderFile(key, render)).then(toM4a)
+        const took = {}
+        const file = readFile(renderFile(key, render)).then(wav => toM4a(wav, took))
         song.encoded = {render, file}
         file.catch(() => {if (song.encoded?.file === file) song.encoded = null})
         countOf(key).encoded++
-        file.then(() => console.log(JSON.stringify({event: "engine.encode", key, encodeMs: Date.now() - began})), () => {})
+        file.then(() => console.log(JSON.stringify({event: "engine.encode", key, encodeMs: Date.now() - began, coders: took})), () => {})
       }
       const file = await song.encoded.file
       // a newer bounce than the one kept wins; an older one that arrives late does not replace it
