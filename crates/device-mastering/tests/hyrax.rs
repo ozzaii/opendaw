@@ -55,7 +55,45 @@ fn matches_matchering_limiter_away_from_the_edges() {
         worst = worst.max((out_left[index] as f64 - expected[row * 2]).abs());
         worst = worst.max((out_right[index] as f64 - expected[row * 2 + 1]).abs());
     }
-    assert!(worst < 1e-6, "deviates by {worst:e}");
+    // Within -60 dB: the original clamps the samples its smoothed attack falls short of, and this one does not.
+    assert!(worst < 1e-3, "deviates by {worst:e}");
+}
+
+/// A kick and a hat at 124 BPM, the kick's attack a click, pushed 9 dB over the threshold: a master at -9 LUFS.
+fn drums() -> (Vec<f64>, Vec<f64>) {
+    let beat = SAMPLE_RATE * 60 / 124;
+    let mut noise = 0x2545F4914F6CDD1Du64;
+    (0..8 * SAMPLE_RATE).map(|index| {
+        let (at, t) = (index % beat, (index % beat) as f64 / SAMPLE_RATE as f64);
+        let kick = (2.0 * PI * (50.0 + 120.0 * (-t * 30.0).exp()) * t).sin() * (-t * 8.0).exp() + if at < 24 {0.6} else {0.0};
+        noise ^= noise << 13; noise ^= noise >> 7; noise ^= noise << 17;
+        let hat_at = (index + beat / 2) % beat;
+        let hat = (noise as f64 / u64::MAX as f64 - 0.5) * 0.6 * (-(hat_at as f64) / SAMPLE_RATE as f64 * 60.0).exp();
+        let gain = 10f64.powf(9.0 / 20.0);
+        (gain * (kick + hat), gain * (kick - hat))
+    }).unzip()
+}
+
+/// Samples in a run of three or more at one level, at or above half the peak: the ears' own count (`services/ears` meter.py).
+fn flat_tops(channel: &[f32]) -> usize {
+    let peak = channel.iter().fold(0.0f32, |peak, value| peak.max(value.abs()));
+    let (mut total, mut run) = (0, 1);
+    for index in 1..=channel.len() {
+        if index < channel.len() && channel[index] == channel[index - 1] && channel[index].abs() >= peak / 2.0 {run += 1;} else {
+            if run >= 3 {total += run;}
+            run = 1;
+        }
+    }
+    total
+}
+
+#[test]
+fn a_hot_master_keeps_its_peaks_round() {
+    let (left, right) = drums();
+    let (out_left, out_right) = run(&mut limiter(), &left, &right, 128, true);
+    let peak = out_left.iter().chain(&out_right).fold(0.0f32, |peak, value| peak.max(value.abs()));
+    assert!(peak as f64 <= THRESHOLD + 1e-6, "peak {peak}");
+    assert_eq!((flat_tops(&out_left), flat_tops(&out_right)), (0, 0));
 }
 
 #[test]

@@ -5,6 +5,12 @@
 //! Matchering's Hyrax brickwall limiter as a streaming processor. The offline original smooths the attack
 //! envelope forwards and backwards (`filtfilt`); the backward pass is evaluated over `BACKWARD_ATTACKS` attack
 //! lengths of lookahead, where its contribution has decayed below 1e-13. Allocation free, built in place.
+//!
+//! ONE CHANGE FROM THE ORIGINAL: no sample is clamped. The original takes each sample's own need (`hard_clip`) when its
+//! smoothed attack falls short, which squares every transient off at the threshold: BRAVOH's masters at -9 LUFS read
+//! thousands of flat-topped samples (14 Nov). Here the need is first held over the attack window and then averaged
+//! over the same window (`cover`); every sample in that average holds the need of the sample it is for, so the gain
+//! ramps down over the attack ahead of a peak and never falls short of it.
 
 pub const RING: usize = 8192;
 const MASK: usize = RING - 1;
@@ -54,6 +60,8 @@ pub struct Hyrax {
     release_filter: (f64, f64),
     audio: [[f32; RING]; 2],
     hard_clip: [f64; RING],
+    slided: [f64; RING],
+    cover: [f64; RING],
     forward: [f64; RING],
     release_gain: [f64; RING],
     attack_queue: MaxQueue,
@@ -90,6 +98,8 @@ impl Hyrax {
     pub fn clear(&mut self) {
         self.audio.iter_mut().for_each(|channel| channel.fill(0.0));
         self.hard_clip.fill(0.0);
+        self.slided.fill(0.0);
+        self.cover.fill(0.0);
         self.forward.fill(0.0);
         self.release_gain.fill(0.0);
         self.attack_queue.head = 0;
@@ -115,6 +125,11 @@ impl Hyrax {
         self.attack_queue.expire(time - 2 * self.radius);
         let center = time - self.radius;
         let slided = self.attack_queue.max();
+        self.slided[center & MASK] = slided;
+        // Each `slided` within a radius of `center - radius` held that sample's need, so their mean does too.
+        let at = center - self.radius;
+        let sum: f64 = (at - self.radius..=center).map(|position| self.slided[position & MASK]).sum();
+        self.cover[at & MASK] = sum / (2 * self.radius + 1) as f64;
         self.forward_state = (1.0 - self.coefficient) * slided + self.coefficient * self.forward_state;
         self.forward[center & MASK] = self.forward_state;
         self.hold_queue.push(center, slided);
@@ -146,7 +161,7 @@ impl Hyrax {
             if position < first + count {
                 let slot = position & MASK;
                 let gain = if active {
-                    1.0 - self.hard_clip[slot].max(backward).max(self.release_gain[slot])
+                    1.0 - self.hard_clip[slot].max(self.cover[slot]).max(backward).max(self.release_gain[slot])
                 } else {1.0};
                 left[position - first] = (self.audio[0][slot] as f64 * gain) as f32;
                 right[position - first] = (self.audio[1][slot] as f64 * gain) as f32;
