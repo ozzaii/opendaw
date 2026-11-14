@@ -11,6 +11,7 @@ import WorkersUrl from "@opendaw/studio-core/workers-main.js?worker&url"
 import {WasmEngine} from "@opendaw/studio-core-wasm"
 import WasmProcessorUrl from "@opendaw/studio-core-wasm/wasm-processor.js?url"
 import WasmOfflineWorkerUrl from "@opendaw/studio-core-wasm/wasm-offline-worker.js?worker&url"
+import {mergeVersion} from "./merge"
 
 declare const __SOURCE__: string
 export const source = __SOURCE__
@@ -93,15 +94,23 @@ export const openSong = async (doors: Doors, onSounds: (sounds: Sounds) => void)
     // The place now, in beats: the anchor carried on by the context's clock while it plays.
     const beatNow = () => !playing || anchor.contextTime === undefined ? anchor.beat
         : anchor.beat + Math.max(0, engineContext!.currentTime - anchor.contextTime) * project!.timelineBox.bpm.getValue() / 60
+    // The engine plays a copy: `ready.graph` stays the version as the store wrote it, what the next version is a step from.
     const stage = async () => {
         const context = engineContext!
+        const graph = new BoxGraph<BoxIO.TypeMap>(Option.wrap(BoxIO.create))
+        graph.fromArrayBuffer(ready.graph.toArrayBuffer(), false)
         const next = Project.fromSkeleton({audioContext: context, audioWorklets: new AudioWorklets(context), sampleManager: manager,
             soundfontManager: new GlobalSoundfontLoaderManager({fetch: async () => {throw new Error("no soundfonts here")}}),
             sampleService: new SampleService(context, BpmDetector.Unknown), soundfontService: new SoundfontService()} as any,
-            {boxGraph: ready.graph as any, mandatoryBoxes: ProjectSkeleton.findMandatoryBoxes(ready.graph as any)}, false)
+            {boxGraph: graph as any, mandatoryBoxes: ProjectSkeleton.findMandatoryBoxes(graph as any)}, false)
         const node = next.startAudioWorklet({unload: async () => {}, load: () => {throw new Error("the engine restarted")}})
         node.connect(context.destination)
+        // isReady answers before the worklet has the song: the graph and its sounds are in when loading is complete.
         await next.engine.isReady()
+        // shortcut: 10 s at most, then it plays as before (a sound still loading is silent); raise it if a long song needs more.
+        for (const until = Date.now() + 10_000; Date.now() < until && !await next.engine.queryLoadingComplete();) {
+            await new Promise(resolve => setTimeout(resolve, 20))
+        }
         return {next, node}
     }
     const unitNamed = () => {
@@ -164,10 +173,14 @@ export const openSong = async (doors: Doors, onSounds: (sounds: Sounds) => void)
             trim.volume.setValue(Math.max(-72, Math.min(12, db)))
             project!.boxGraph.endTransaction()
         },
-        // A new version: its sounds fetched first, the old one plays until the swap. Answers whether this page has it.
+        // A new version: its sounds fetched first, then what changed goes into the graph that plays, as an edit would. Only
+        // a version that cannot be a step from the last (another skeleton, a step the graph refuses) is built as a second
+        // engine, swapped in once it holds the song.
         update: async () => {
+            const last = ready
             ready = await prepare()
             if (!engineContext) {return}
+            if (await mergeVersion(last.graph, ready.graph, project!.boxGraph)) {return}
             const {next, node} = await stage()
             const was = project!, wasNode = worklet!
             // From the anchors, never the old project's frame copy: one swapped in a moment ago still reads 0 (bar 1).

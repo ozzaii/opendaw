@@ -3,7 +3,10 @@
   "private": true,
   "type": "module",
   "license": "AGPL-3.0-or-later",
-  "scripts": {"build": "vite build"},
+  "scripts": {
+    "build": "vite build",
+    "test": "esbuild merge.test.ts --bundle --platform=node --format=esm --log-level=warning --banner:js=\"import {createRequire as __cr} from 'node:module'; const require = __cr(import.meta.url);\" --outfile=dist/test/merge.test.mjs && node --test dist/test/merge.test.mjs"
+  },
   "dependencies": {
     "@opendaw/lib-box": "0.0.103",
     "@opendaw/lib-dom": "0.0.96",
