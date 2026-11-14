@@ -14,7 +14,7 @@ import {decode, encode} from "../runtime/wire.mjs"
 import {Song} from "./song.mjs"
 import {factsOf} from "./facts.mjs"
 import {toM4a} from "./bounce.mjs"
-import {openRoom, startRooms} from "./rooms.mjs"
+import {clientsIn, openRoom, startRooms} from "./rooms.mjs"
 import {extname, normalize} from "node:path"
 import {fileURLToPath} from "node:url"
 import {rm} from "node:fs/promises"
@@ -50,10 +50,29 @@ const serial = (key, work) => {
 }
 // The open itself is what is kept: two calls meeting on a song not yet open each opened their own, and the later
 // replaced the earlier with its graph and its room still in use. Renders no longer queue, so calls do meet here.
+const asked = new Map() // key -> when a call last asked for that song
 const songOf = key => {
+  asked.set(key, Date.now())
   if (!songs.has(key)) songs.set(key, Song.open(join(DATA, "songs"), key).catch(error => {songs.delete(key); throw error}))
   return songs.get(key)
 }
+// A SONG NOBODY USES GOES BACK TO DISK. Every song ever opened kept its graph and its room for the life of the process
+// (11-14: 9 MB a song on an 8-lane one in heap-proof.mjs; the store's heap full in 62 minutes). One no call has asked
+// for in ten minutes, with no page in its room (a page still there writes through it), is saved and closed; the next
+// ask opens it from disk.
+const IDLE_MS = 10 * 60_000
+setInterval(() => {
+  for (const [key, at] of asked)
+    if (Date.now() - at > IDLE_MS)
+      serial(key, async () => {
+        const opened = songs.get(key)
+        if (!opened || Date.now() - (asked.get(key) ?? 0) <= IDLE_MS) return
+        const song = await opened.catch(() => null)
+        if (song && clientsIn(song.roomName) > 1) return
+        songs.delete(key); asked.delete(key)
+        await song?.close()
+      }).catch(error => console.warn(`[engine] ${key} not closed:`, error))
+}, 60_000).unref()
 const samplesDir = key => join(DATA, "samples", key)
 const uuidText = bytes => UUID.toString(bytes)
 const sampleIndex = async key => JSON.parse(await readFile(join(samplesDir(key), "index.json"), "utf8").catch(() => "[]"))
@@ -199,7 +218,7 @@ const countOf = key => {
 // What it does not reach: a page the engine host still has open on it (the host's own DELETE closes it, first).
 const erase = key => serial(key, async () => {
   await (await songOf(key)).erase()
-  songs.delete(key)
+  songs.delete(key); asked.delete(key)
   counts.delete(key)
   for (const id of [...keptRenders.get(key)?.keys() ?? []]) forget(key, id)
   keptRenders.delete(key)

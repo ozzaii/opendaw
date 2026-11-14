@@ -54,6 +54,15 @@ export class Song {
     return this.#room.name
   }
   get graph() {return this.#graph}
+  /** The room the pages join now, or null. */
+  get roomName() {return this.#room?.name ?? null}
+  // TO DISK AND OUT OF MEMORY (server.mjs, a song no call has asked for a while and no page is in): its last save done,
+  // its room closed. The next ask reads it from disk again (Song.open), as after a restart.
+  async close() {
+    if (this.#timer) {clearTimeout(this.#timer); this.#timer = null; await this.#save()}
+    await this.#saving
+    this.#room?.close(); this.#room = null; this.#graph = null
+  }
   bytes() {return this.#graph ? ProjectSkeleton.encode(this.#graph) : null}
   // A booth opened before any program wrote a song: an empty one under the booth's title, so the studio is there at once.
   // Not an undo step: there is nothing to take back to. A song that exists is left as it is.

@@ -4,8 +4,16 @@ import {createServer} from "node:http"
 import * as Y from "yjs"
 import {WebSocket, WebSocketServer} from "ws"
 import {WebsocketProvider} from "y-websocket"
-import {setupWSConnection} from "y-websocket/bin/utils"
+import {docs, setPersistence, setupWSConnection} from "y-websocket/bin/utils"
 import {YSync} from "./node_modules/@opendaw/studio-core/dist/ysync/YSync.js"
+// A ROOM GOES WHEN ITS LAST CLIENT LEAVES. y-websocket 1.5.4 (bin/utils.js closeConn) forgets a room's doc only when a
+// persistence is set; with none, every room ever opened stayed in its module map for the life of the process, and every
+// replace and undo opens a new one (song.mjs #attach). Measured 11-14 (heap-proof.mjs): 4 MB of Y structs held per
+// attach on an 8-lane song, and the store died of a full heap 62 minutes after a start. The truth is on disk, so a room
+// keeps nothing: this persistence only lets an empty room go.
+setPersistence({bindState: () => {}, writeState: async () => {}})
+// Who is in a room: the store's own client and each page joined to it.
+export const clientsIn = name => docs.get(name)?.conns.size ?? 0
 export const startRooms = (port = 0, host = "127.0.0.1") => new Promise(resolve => {
   const wss = new WebSocketServer({noServer: true})
   wss.on("connection", setupWSConnection)
