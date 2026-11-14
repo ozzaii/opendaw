@@ -92,3 +92,21 @@ test("a looped curve plays again each pass, a muted region plays no curve", asyn
   const {tracks} = await factsOf(project.context.boxGraph, "Loop")
   assert.deepEqual(tracks[0].automation[0].curve.map(({at, value}) => [at / bar, value]), [[0, 0], [2, 1], [2, 0], [4, 1]])
 })
+
+// 11-14: a boom bap whose four lanes swung at 0.61 read as straight to the Producer, because these facts held no MIDI effect.
+test("a lane carries its MIDI effects, a swing as its amount and its pair", async () => {
+  const project = new ApiImpl({}).newProject("Swing")
+  const hats = project.addInstrumentUnit("Playfield", {label: "Hats"})
+  hats.noteTracks[0].addRegion({position: 0, duration: 4 * PPQ})
+  const swing = hats.addMIDIEffect("Zeitgeist", {label: "Swing"})
+  swing.groove.amount = 0.61
+  swing.groove.duration = 480
+  hats.addMIDIEffect("Pitch", {semiTones: 3})
+  project.addInstrumentUnit("Vaporisateur", {label: "Pad"}).noteTracks[0].addRegion({position: 0, duration: PPQ})
+  const {tracks} = await factsOf(project.context.boxGraph, "Swing")
+  assert.deepEqual(tracks[0].midiFx, [
+    {name: "Swing", kind: "midi", type: "Zeitgeist", params: [{name: "amount", value: 0.61}, {name: "duration", value: 480}]},
+    {name: tracks[0].midiFx[1].name, kind: "midi", type: "Pitch", params: [{name: "octaves", value: 0}, {name: "semiTones", value: 3}, {name: "cents", value: 0}]}
+  ])
+  assert.equal(tracks[1].midiFx, undefined, "a lane with no MIDI effect carries nothing")
+})

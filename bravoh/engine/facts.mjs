@@ -47,6 +47,23 @@ const automationOf = unit => unit.valueTracks.map(lane => {
     curve: curveOf(lane)
   }
 })
+// A lane's MIDI effects, each with the few knobs that say what it does to the notes: a swing is a Zeitgeist whose `amount`
+// is where the off-step lands in its pair of `duration` pulses (11-14: the Producer told the artist it could find no swing
+// in a song whose four lanes carried 0.61, because these facts held no MIDI effect).
+const MIDI_KNOBS = {
+  Zeitgeist: effect => ({amount: effect.groove.amount, duration: effect.groove.duration}),
+  Pitch: effect => ({octaves: effect.octaves, semiTones: effect.semiTones, cents: effect.cents}),
+  Velocity: effect => ({offset: effect.offset, randomAmount: effect.randomAmount, magnetStrength: effect.magnetStrength, mix: effect.mix}),
+  Arpeggio: effect => ({mode: effect.mode, octaves: effect.octaves, rate: effect.rate, gate: effect.gate}),
+  NoteFilter: effect => ({min: effect.min, max: effect.max})
+}
+const midiOf = unit => unit.midiEffects.map(effect => ({
+  name: effect.label || effect.key,
+  kind: "midi",
+  type: effect.key,
+  ...(effect.enabled === false ? {on: false} : {}),
+  params: Object.entries(MIDI_KNOBS[effect.key]?.(effect) ?? {}).map(([name, value]) => ({name, value: Math.round(value * 1e4) / 1e4}))
+}))
 export const factsOf = async (graph, title) => {
   const buffer = ProjectSkeleton.encode(graph)
   const api = new ApiImpl({hasProject: async () => true, fetchProject: async () => ({buffer, name: title ?? ""})})
@@ -60,13 +77,14 @@ export const factsOf = async (graph, title) => {
   // shortcut: one tempo for the whole song, as `tempo` below says it; a tempo track would need the tempo map here.
   const pulses = region => region.playback === "no-sync" ? Math.round(region.duration * song.bpm / 60 * PPQ) : region.duration
   for (const unit of song.instrumentUnits) {
-    // The curves are the unit's, so they stand on its first lane alone: on each they would draw and count twice.
-    let automation = automationOf(unit)
+    // The curves and MIDI effects are the unit's, so they stand on its first lane alone: on each they would count twice.
+    let automation = automationOf(unit), midiFx = midiOf(unit)
     for (const track of unit.tracks.filter(track => track.type === "notes" || track.type === "audio")) {
       const index = tracks.length
       const audio = track.type === "audio"
-      tracks.push({name: unit.label, ...(unit.instrument ? {instrument: unit.instrument.key} : {}), kind: audio ? "audio" : "instrument", fx: unit.audioEffects.map(effect => effect.label), volumeDb: Math.round(unit.volume * 10) / 10, ...(unit.mute ? {muted: true} : {}), ...(automation.length ? {automation} : {})})
+      tracks.push({name: unit.label, ...(unit.instrument ? {instrument: unit.instrument.key} : {}), kind: audio ? "audio" : "instrument", fx: unit.audioEffects.map(effect => effect.label), volumeDb: Math.round(unit.volume * 10) / 10, ...(unit.mute ? {muted: true} : {}), ...(automation.length ? {automation} : {}), ...(midiFx.length ? {midiFx} : {})})
       automation = []
+      midiFx = []
       for (const region of track.regions) {
         const length = pulses(region)
         end = Math.max(end, region.position + length)
