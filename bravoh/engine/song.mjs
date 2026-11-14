@@ -12,6 +12,8 @@ const graphOf = bytes => {
   return graph
 }
 const asBuffer = bytes => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+// The turn a stamp belongs to: `<turn>#<landing>` is that turn's landing, a stamp with no `#` a turn of its own.
+const turnOf = stamp => String(stamp).replace(/#[^#]*$/, "")
 export class Song {
   static async open(dir, key) {
     const song = new Song(dir, key)
@@ -97,9 +99,18 @@ export class Song {
   // The last `turns` turns that wrote, taken back: the song as it was before the oldest of them, in a new room.
   // `from` ("Revert to here"): the turns those ones stamp, and every turn after the first of them. It is the store that
   // knows which turns wrote, so the count is worked out here: the caller knows only the artist's message ids.
+  // A LANDING IS A STEP, A TURN IS ITS LANDINGS (11-14): BRAVOH stamps each apply `<turn>#<landing>`, so each of make's
+  // landings has a snapshot of its own and `from` naming one stamp takes back that landing and what came after it. A turn
+  // named by its own id, and `turns`, still take back every landing of it: a run is one step to the artist and the desk.
   async undo(turns = 1, from) {
-    const start = from ? this.#history.findIndex(({turn}) => from.includes(turn)) : Math.max(0, this.#history.length - Math.max(1, turns))
-    const taken = start < 0 ? [] : this.#history.splice(start)
+    const history = this.#history
+    let start = history.length
+    if (from) start = history.findIndex(({turn}) => from.includes(turn) || from.includes(turnOf(turn)))
+    else for (let left = Math.max(1, turns); left > 0 && start > 0; left--) {
+      const turn = turnOf(history[start - 1].turn)
+      while (start > 0 && turnOf(history[start - 1].turn) === turn) start--
+    }
+    const taken = start < 0 ? [] : history.splice(start)
     if (taken.length === 0) return {undone: 0, turns: 0}
     const back = taken[0]
     const bytes = back.file ? await readFile(join(this.#snapshots, back.file)) : null
@@ -107,7 +118,7 @@ export class Song {
     await this.#save()
     await writeFile(join(this.#snapshots, "index.json"), JSON.stringify(this.#history))
     for (const {file} of taken) if (file) await rm(join(this.#snapshots, file), {force: true})
-    return {undone: taken.length, turns: taken.length}
+    return {undone: taken.length, turns: new Set(taken.map(({turn}) => turnOf(turn))).size}
   }
   // ONE SAVE AT A TIME PER SONG, each on its own tmp file. The booth page's writes save on a timer beside a
   // program's apply: two saves on one ".tmp" raced, the second rename found it gone (ENOENT, staging 11-04),

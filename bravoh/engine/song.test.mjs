@@ -36,3 +36,16 @@ test("turns: the last ones that wrote, as the Producer's undo asks", async () =>
   assert.deepEqual(await song.undo(2), {undone: 2, turns: 2})
   assert.equal(song.name, "after m1")
 })
+
+// Each of make's landings is stamped `<turn>#<landing>` (BRAVOH's `studio_apply`), so each is a step of its own.
+test("landings: one landing of a run of three goes back alone, and the run is still one turn", async () => {
+  const song = await written(["m1", "m2#1", "m2#2", "m2#3"])
+  assert.deepEqual(await song.undo(1, ["m2#3"]), {undone: 1, turns: 1})
+  assert.equal(song.name, "after m2#2")
+  // the Producer's undo and "Revert to here" by the message take the rest of the run, never m1
+  assert.deepEqual(await song.undo(1), {undone: 2, turns: 1})
+  assert.equal(song.name, "after m1")
+  const again = await written(["m1", "m2#1", "m2#2"])
+  assert.deepEqual(await again.undo(1, ["m2"]), {undone: 2, turns: 1})
+  assert.equal(again.name, "after m1")
+})
