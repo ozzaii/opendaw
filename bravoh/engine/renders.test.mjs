@@ -6,6 +6,8 @@ import {tmpdir} from "node:os"
 import {join} from "node:path"
 import {execFileSync} from "node:child_process"
 import {readFileSync} from "node:fs"
+import {readdir} from "node:fs/promises"
+import {decode, encode} from "../runtime/wire.mjs"
 import {renderLanes, RenderStuck, Superseded} from "../../packages/app/studio/src/service/BravohRenders.ts"
 
 const later = () => {
@@ -167,10 +169,17 @@ test("while what it waits for keeps arriving, a render is not stuck", async () =
   })
 })
 
-test("a render running past the whole clock fails too, naming no wait: its engine is what stopped", async () => {
+test("a render that keeps moving is never cut, however long; one that stops moving is ended, naming no wait", async () => {
   const stuck = []
-  const lanes = renderLanes({version: async () => 1, stored: async () => false, note: () => {}, stuck: error => stuck.push(error), renderMs: 20})
-  await assert.rejects(lanes.once("long", 1, false, () => new Promise(() => {})), /still rendering/)
+  const lanes = renderLanes({version: async () => 1, stored: async () => false, note: () => {}, stuck: error => stuck.push(error), stallMs: 30})
+  // five times the stall clock, moving every 10 ms
+  await lanes.once("long", 1, false, async watch => {
+    for (let at = 0; at < 15; at++) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+      watch.moved()
+    }
+  })
+  await assert.rejects(lanes.once("still", 1, false, () => new Promise(() => {})), /nothing moved for .* still rendering/)
   await tick()
   assert.deepEqual(stuck.map(error => error.waited), [[]])
 })
@@ -181,12 +190,15 @@ test("a failed render answers its readers and leaves the lane free", async () =>
   await lanes.once("a", 1, false, async () => {})
 })
 
-test("a render that waited past the host's patience says so instead of running out its clock", async () => {
-  // a patience already spent, so no millisecond decides it
-  const lanes = renderLanes({version: async () => 1, stored: async () => false, note: () => {}, waitMs: -1})
-  const started = []
-  await assert.rejects(lanes.once("waiting", 1, false, work(started).run), /waiting/)
-  assert.equal(started.length, 0)
+test("a render is never refused for the time it stood in line", async () => {
+  const lanes = renderLanes({version: async () => 1, stored: async () => false, note: () => {}, stallMs: 30})
+  const ahead = lanes.once("ahead", 1, false, async watch => {
+    for (let at = 0; at < 8; at++) {await new Promise(resolve => setTimeout(resolve, 10)); watch.moved()}
+  })
+  // everybody's lane is taken by "ahead" and the artist's takes only the artist's: this one stands in line past the stall clock
+  const behind = []
+  await Promise.all([ahead, lanes.once("behind", 1, false, async watch => {behind.push(watch.waitedMs)})])
+  assert.ok(behind[0] >= 60, `it stood ${behind[0]} ms in line and still rendered`)
 })
 
 // THE STORE. A render stays for every reader, the bounce is encoded from the one it holds, and the count says so.
@@ -250,6 +262,26 @@ test("a reader that waited for a bounce gets it, however far the song has moved"
   assert.equal((await call(`s4/audio?version=${song + 1}`)).status, 200)
   // asked with no version: the song's own, as before
   assert.equal((await call("s4/audio")).status, 200)
+})
+
+// An artist's account erased takes their songs with it (the ethics review's "delete my account", 11-14).
+test("a song erased is gone from every door, its undo and files with it, and erasing it again is done too", async () => {
+  await call("s9/start", {method: "POST", body: JSON.stringify({name: "gone"})})
+  await call("s9/mark", {method: "POST", body: JSON.stringify({turn: "t1"})})
+  const added = await call("s9/samples", {method: "POST", body: JSON.stringify({wire: encode({add: {name: "kick", sampleRate: 48_000, frames: [new Float32Array(480)]}})})})
+  const {uuid} = decode((await added.json()).wire)
+  await call("s9/renders/r1", {method: "POST", body: wav})
+  await call("s9/nam", {method: "POST", body: JSON.stringify({model: "{}", name: "amp"})})
+  assert.equal((await call("s9/project")).status, 200)
+  assert.equal((await call(`s9/sample?uuid=${uuid}`)).status, 200)
+  assert.equal((await fetch(`${base}/s9`, {method: "DELETE"})).status, 401)
+  assert.equal((await call("s9", {method: "DELETE"})).status, 204)
+  for (const door of ["song", "project", "room", `sample?uuid=${uuid}`, "renders/r1?peek=1"]) assert.equal((await call(`s9/${door}`)).status, 404, door)
+  assert.equal((await (await call("s9/nam")).json()).some(model => model.name === "amp"), false)
+  assert.deepEqual(await (await call("s9/undo", {method: "POST", body: "{}"})).json(), {undone: 0, turns: 0})
+  const left = (await Promise.all(["songs", "samples", "nam-songs"].map(dir => readdir(join(process.env.ENGINE_DATA, dir)).catch(() => [])))).flat()
+  assert.deepEqual(left.filter(name => name.startsWith("s9")), [])
+  assert.equal((await call("s9", {method: "DELETE"})).status, 204)
   server.close()
   server.closeAllConnections()
 })

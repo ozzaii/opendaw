@@ -447,6 +447,8 @@ Communicator.executor<OfflineEngineProtocol>(
                 // A quiet render is stopped by ending its worker. The clamped timeout costs about 4 ms each time.
                 if (engine.totalFrames - lastYield >= engine.sampleRate * (engine.quiet ? 30 : 1)) {
                     lastYield = engine.totalFrames
+                    // a quiet render's one sign of moving: its position, every 30 s of song (BravohRenders.ts ends a render that stops moving)
+                    if (engine.quiet) {engine.stateSender.tryWrite()}
                     await new Promise(resolve => setTimeout(resolve, 0))
                 }
             }

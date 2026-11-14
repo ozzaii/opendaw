@@ -118,8 +118,11 @@ const render = async (service: StudioService, bytes: ArrayBufferLike, boxGraph: 
     if (section.end <= section.start) {throw new Error("The song has no regions to render.")}
     await soundsOf(service, boxGraph, watch)
     took.soundsMs = Math.round(performance.now() - began)
-    // the live AudioContext keeps running: an offline render is a worker of its own
-    const audio = await ScriptAnswers.renderMixdown(service, bytes, sampleRate, {section, abortSignal: watch.signal, listeners: {wait: watch.wait, quiet: true}})
+    // the live AudioContext keeps running: an offline render is a worker of its own; each step of it is a move
+    const progress = new DefaultObservableValue(0.0)
+    const moving = progress.subscribe(watch.moved)
+    const audio = await ScriptAnswers.renderMixdown(service, bytes, sampleRate, {section, progress, abortSignal: watch.signal, listeners: {wait: watch.wait, quiet: true}})
+        .finally(() => moving.terminate())
     took.renderMs = Math.round(performance.now() - began) - took.soundsMs
     if (!section.tail) {return audio}
     // The engine's tail only stops under -72 dBFS: on 6 Nov a tone held at -70.9 ran a 76.8 s song to its 30 s cap.
@@ -201,6 +204,7 @@ const renderOnce = async (service: StudioService, bytes: ArrayBufferLike, sample
         const encoding = performance.now()
         const wav = WavFile.encodeFloats(audio)
         took.wavMs = Math.round(performance.now() - encoding)
+        watch.moved()
         const posting = performance.now()
         await post(`renders/${id}`, wav)
         took.postMs = Math.round(performance.now() - posting)
@@ -234,6 +238,7 @@ const stemsOnce = async (service: StudioService, bytes: ArrayBufferLike, sampleR
         const progress = new DefaultObservableValue(0.0)
         let said = 0
         const saying = progress.subscribe(owner => {
+            watch.moved()
             const done = owner.getValue()
             if (done - said < 0.02) {return}
             said = done
@@ -263,6 +268,7 @@ const stemsOnce = async (service: StudioService, bytes: ArrayBufferLike, sampleR
                 if (stems[at].kind !== "mix") {silent.push(stems[at].name)}
                 continue
             }
+            watch.moved()
             await post(`stems/${id}/${at}`, WavFile.encodeFloats({
                 sampleRate, numberOfFrames: length, numberOfChannels: 2, frames: [left, right]
             } as AudioData))

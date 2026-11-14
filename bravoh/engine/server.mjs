@@ -194,6 +194,18 @@ const countOf = key => {
   if (!counts.has(key)) counts.set(key, {rendered: 0, shared: 0, stored: 0, dropped: 0, encoded: 0})
   return counts.get(key)
 }
+// A SONG ERASED WHOLE (DELETE /v1/songs/:key, an artist's account erased): the song and its versions, its undo, its
+// samples, soundfonts and amp models, its renders and stems, and all this process holds of it. Nothing there: done all the same.
+// What it does not reach: a page the engine host still has open on it (the host's own DELETE closes it, first).
+const erase = key => serial(key, async () => {
+  await (await songOf(key)).erase()
+  songs.delete(key)
+  counts.delete(key)
+  for (const id of [...keptRenders.get(key)?.keys() ?? []]) forget(key, id)
+  keptRenders.delete(key)
+  await dropStems(key)
+  await Promise.all([samplesDir(key), soundfontsDir(key), songNamFile(key)].map(path => rm(path, {recursive: true, force: true})))
+})
 const send = (response, status, value) => {response.writeHead(status, {"content-type": "application/json"}); response.end(JSON.stringify(value))}
 export const server = createServer(async (request, response) => {
   const path = new URL(request.url, "http://engine").pathname
@@ -209,6 +221,11 @@ export const server = createServer(async (request, response) => {
   const [, version, songs, key, method] = new URL(request.url, "http://engine").pathname.split("/")
   if (version !== "v1" || songs !== "songs" || !KEY.test(key ?? "")) return send(response, 404, {why: "no such route"})
   try {
+    if (request.method === "DELETE" && method === undefined) {
+      await erase(key)
+      response.writeHead(204)
+      return response.end()
+    }
     if (request.method === "GET" && method === "song") {
       const song = await songOf(key)
       return song.graph ? send(response, 200, await factsOf(song.graph, song.name)) : send(response, 404, {why: "no song"})

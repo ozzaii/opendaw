@@ -7,23 +7,24 @@
 // make's numbers cost the artist nothing. A loop area (a phrase, seconds of work) never waits behind a whole song: 11-14 a
 // 2.3 s loop render waited 25.9 s and 45.8 s in everybody's lane. No imports, so `bravoh/engine/renders.test.mjs` runs it in Node.
 
-// external limit: under the host's 170 s for one call, leaving room for the render itself (51 s for 128 bars on the box)
-const WAIT_MS = 100_000
-// external limit: a render fails on its own before the host gives up on the call (170 s, services/booth/host.mjs), so the
-// program hears what it waited for and the lane is free
-const RENDER_MS = 150_000
-// external limit: how long nothing it waits for may arrive. The sounds of a render took 8.9 s at most in 655 renders (11-07).
+// A RENDER IS ENDED ONLY WHEN IT STOPPED MOVING, never for how long it took or stood in line (11-14: 205 lines in 7 days
+// ended renders by a total clock that counted the line). Moving: a sound it waits for arrives, or the engine reports
+// progress (`watch.moved`). The time in line is no one's clock: the render ahead is moving or is ended by its own.
+// external limit: how long nothing may move. The sounds of a render took 8.9 s at most in 655 renders (11-07).
 const STALL_MS = 60_000
 
 export class RenderStuck extends Error {
     readonly waited: ReadonlyArray<string>
     constructor(waited: ReadonlyArray<string>, seconds: number) {
-        super(`The render stopped after ${seconds} s, ${waited.length > 0 ? `waiting for ${waited.join(", ")}` : "still rendering"}: nothing was rendered. Ask again.`)
+        super(`The render stopped: nothing moved for ${seconds} s, ${waited.length > 0 ? `waiting for ${waited.join(", ")}` : "still rendering"}: nothing was rendered. Ask again.`)
         this.waited = waited
     }
 }
 /** What a render tells the lane while it runs, and what stops it. */
-export type RenderWatch = { signal: AbortSignal, wait: (what: string) => () => void, /** asked to started */ waitedMs: number }
+export type RenderWatch = {
+    signal: AbortSignal, wait: (what: string) => () => void, /** the engine moved: restarts the stall clock */ moved: () => void,
+    /** asked to started */ waitedMs: number
+}
 
 export class Superseded extends Error {
     constructor() {super("The song changed while this render waited: read it again and render that.")}
@@ -32,7 +33,7 @@ export class Superseded extends Error {
 export type RenderNote = "shared" | "stored" | "dropped"
 type Render = { id: string, version: number, artist: boolean, loop: boolean, asked: number, work: (watch: RenderWatch) => Promise<void>, answer: PromiseWithResolvers<void> }
 
-export const renderLanes = ({version, stored, note, stuck = () => {}, waitMs = WAIT_MS, renderMs = RENDER_MS, stallMs = STALL_MS}: {
+export const renderLanes = ({version, stored, note, stuck = () => {}, stallMs = STALL_MS}: {
     /** The song's version now. */
     version: () => Promise<number>
     /** Whether the store already holds this render. */
@@ -40,8 +41,6 @@ export const renderLanes = ({version, stored, note, stuck = () => {}, waitMs = W
     note: (what: RenderNote) => void
     /** A render that could not finish, after its readers were told. */
     stuck?: (error: RenderStuck) => void
-    waitMs?: number
-    renderMs?: number
     stallMs?: number
 }) => {
     const asked = new Map<string, Render>() // every render not finished, waiting or running: what a second reader joins
@@ -54,9 +53,7 @@ export const renderLanes = ({version, stored, note, stuck = () => {}, waitMs = W
         let clock: ReturnType<typeof setTimeout> | undefined
         const arm = () => {
             clearTimeout(clock)
-            const left = render.asked + renderMs - Date.now()
-            clock = setTimeout(() => stop.abort(new RenderStuck([...waits], Math.round((Date.now() - render.asked) / 1000))),
-                waits.size > 0 ? Math.min(stallMs, left) : left)
+            clock = setTimeout(() => stop.abort(new RenderStuck([...waits], Math.round(stallMs / 1000))), stallMs)
         }
         const stopped = new Promise<never>((_, fail) => stop.signal.addEventListener("abort", () => fail(stop.signal.reason), {once: true}))
         arm()
@@ -64,6 +61,7 @@ export const renderLanes = ({version, stored, note, stuck = () => {}, waitMs = W
             await Promise.race([stopped, render.work({
                 signal: stop.signal,
                 waitedMs: Date.now() - render.asked,
+                moved: arm,
                 wait: what => {
                     waits.add(what)
                     arm()
@@ -85,7 +83,6 @@ export const renderLanes = ({version, stored, note, stuck = () => {}, waitMs = W
             note("dropped")
             throw new Superseded()
         }
-        if (Date.now() - render.asked > waitMs) {throw new Error("Too many renders of this song are waiting: ask again in a moment.")}
         await watched(render)
     }
     const pump = (): void => {

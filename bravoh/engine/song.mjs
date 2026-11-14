@@ -120,6 +120,14 @@ export class Song {
     for (const {file} of taken) if (file) await rm(join(this.#snapshots, file), {force: true})
     return {undone: taken.length, turns: new Set(taken.map(({turn}) => turnOf(turn))).size}
   }
+  // ERASED WHOLE (an artist's account erased): no room, no save to come, and nothing of it on disk, its undo included.
+  async erase() {
+    clearTimeout(this.#timer)
+    this.#attach(null, "")
+    await this.#save()
+    this.#history = []
+    await rm(this.#snapshots, {recursive: true, force: true})
+  }
   // ONE SAVE AT A TIME PER SONG, each on its own tmp file. The booth page's writes save on a timer beside a
   // program's apply: two saves on one ".tmp" raced, the second rename found it gone (ENOENT, staging 11-04),
   // and the timer's unhandled rejection took the engine and every room with it.
