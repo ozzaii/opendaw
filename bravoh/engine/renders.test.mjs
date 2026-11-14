@@ -264,6 +264,23 @@ test("a reader that waited for a bounce gets it, however far the song has moved"
   assert.equal((await call("s4/audio")).status, 200)
 })
 
+// 11-14: the ear waited 44 s for the phone's file it only re-encodes. Asked early, the bounce names its render at once,
+// the ear reads that whole, and the phone's file is kept for its version when its encode ends.
+test("an early bounce names its render before the phone's file, and the file is kept when its encode ends", async () => {
+  await call("s5/start", {method: "POST", body: "{}"})
+  const song = (await (await call("s5/version")).json()).version
+  await call("s5/renders/r1", {method: "POST", body: wav})
+  const answer = await call(`s5/bounce?version=${song}&render=r1&early=1`, {method: "POST"})
+  assert.deepEqual(await answer.json(), {version: song, render: "r1"})
+  assert.equal((await call("s5/renders/r1")).status, 200, "the ear reads the render whole")
+  let audio = await call(`s5/audio?version=${song}`)
+  for (let tries = 0; audio.status === 409 && tries < 100; tries++) {
+    await new Promise(done => setTimeout(done, 100))
+    audio = await call(`s5/audio?version=${song}`)
+  }
+  assert.equal(audio.status, 200)
+})
+
 // An artist's account erased takes their songs with it (the ethics review's "delete my account", 11-14).
 test("a song erased is gone from every door, its undo and files with it, and erasing it again is done too", async () => {
   await call("s9/start", {method: "POST", body: JSON.stringify({name: "gone"})})

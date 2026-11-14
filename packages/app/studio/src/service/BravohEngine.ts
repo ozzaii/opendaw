@@ -321,7 +321,9 @@ const renders: Record<string, (service: StudioService, input: any, turn: string,
     },
     // the song as the phone plays it, kept by the store for the version it was rendered from. A bounce overtaken while it
     // waited renders the song as it now stands: the artist always has one coming.
-    bounce: async (service, _input, _turn, edit) => {
+    // `early`: answered once the store has started the phone's encode, with the render the ear reads (`server.mjs` bounce).
+    bounce: async (service, input, _turn, edit) => {
+        const early = input?.early === true
         for (; ;) {
             const {bytes, version} = await edit(async () => {
                 const song = await roomOf(service)
@@ -331,8 +333,8 @@ const renders: Record<string, (service: StudioService, input: any, turn: string,
             try {
                 const id = await renderOnce(service, bytes, 48_000, true, version)
                 // the store encodes the render it holds: what the mix holds above 0 dBFS reaches its encoder whole (`bounce.mjs`)
-                await post(`bounce?version=${version}&render=${id}`, "")
-                return {version}
+                await post(`bounce?version=${version}&render=${id}${early ? "&early=1" : ""}`, "")
+                return early ? {version, render: id} : {version}
             } catch (error) {
                 if (!(error instanceof Superseded)) {throw error}
             }

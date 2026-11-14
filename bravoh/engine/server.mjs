@@ -369,9 +369,16 @@ export const server = createServer(async (request, response) => {
         countOf(key).encoded++
         file.then(() => console.log(JSON.stringify({event: "engine.encode", key, encodeMs: Date.now() - began, coders: took})), () => {})
       }
-      const file = await song.encoded.file
       // a newer bounce than the one kept wins; an older one that arrives late does not replace it
-      if (!(song.bounced?.version > version)) song.bounced = {version, file}
+      const keep = file => {if (!(song.bounced?.version > version)) song.bounced = {version, file}}
+      // THE EAR DOES NOT WAIT FOR THE PHONE'S FILE (11-14: the encode was 44 s of every 66-87 s bounce, and the ear only
+      // re-encodes it to mp3): asked `early`, the store answers once the encode has started, naming the render the ear
+      // reads whole (`renders/<id>`), and keeps the phone's file for its version when the encode ends.
+      if (asked.get("early") === "1") {
+        song.encoded.file.then(keep, () => {})
+        return send(response, 200, {version, render})
+      }
+      keep(await song.encoded.file)
       return send(response, 200, {version})
     }
     if (method === "soundfonts") {
