@@ -113,10 +113,8 @@ const soundsOf = async (service: StudioService, boxGraph: BoxGraph, watch: Rende
     const failed = loads.flatMap(load => load.status === "rejected" ? [String(load.reason?.message ?? load.reason)] : [])
     if (failed.length > 0) {throw new Error(`Some sounds of the song did not load, so the render would be missing them: ${failed.join("; ")}`)}
 }
-const render = async (service: StudioService, bytes: ArrayBufferLike, sampleRate: int, took: Record<string, number>, watch: RenderWatch): Promise<AudioData> => {
+const render = async (service: StudioService, bytes: ArrayBufferLike, boxGraph: BoxGraph, section: MixdownSection, sampleRate: int, took: Record<string, number | string>, watch: RenderWatch): Promise<AudioData> => {
     const began = performance.now()
-    const {boxGraph} = ProjectSkeleton.decode(bytes as ArrayBuffer)
-    const section = sectionOf(boxGraph)
     if (section.end <= section.start) {throw new Error("The song has no regions to render.")}
     await soundsOf(service, boxGraph, watch)
     took.soundsMs = Math.round(performance.now() - began)
@@ -195,9 +193,11 @@ const lanes = renderLanes({
 /** This project rendered once, for everyone who asks while it runs or while the store holds it; its name in the store. */
 const renderOnce = async (service: StudioService, bytes: ArrayBufferLike, sampleRate: int, artist: boolean, version: int): Promise<string> => {
     const id = `${UUID.toString(await UUID.sha256(bytes as ArrayBuffer))}-${sampleRate}`
+    const {boxGraph} = ProjectSkeleton.decode(bytes as ArrayBuffer)
+    const section = sectionOf(boxGraph)
     await lanes.once(id, version, artist, async watch => {
-        const took: Record<string, number> = {}
-        const audio = await render(service, bytes, sampleRate, took, watch)
+        const took: Record<string, number | string> = {kind: section.type, waitMs: watch.waitedMs}
+        const audio = await render(service, bytes, boxGraph, section, sampleRate, took, watch)
         const encoding = performance.now()
         const wav = WavFile.encodeFloats(audio)
         took.wavMs = Math.round(performance.now() - encoding)
@@ -205,7 +205,7 @@ const renderOnce = async (service: StudioService, bytes: ArrayBufferLike, sample
         await post(`renders/${id}`, wav)
         took.postMs = Math.round(performance.now() - posting)
         await post(`renders-note`, JSON.stringify({took}))
-    })
+    }, section.type === "loop")
     return id
 }
 
@@ -223,7 +223,7 @@ let stemsTold: { stems: string, sampleRate: int, frames: int, files: ReadonlyArr
 const stemsOnce = async (service: StudioService, bytes: ArrayBufferLike, sampleRate: int, version: int) => {
     const id = `${UUID.toString(await UUID.sha256(bytes as ArrayBuffer))}-${sampleRate}-stems`
     await lanes.once(id, version, false, async watch => {
-        const took: Record<string, number> = {}
+        const took: Record<string, number> = {waitMs: watch.waitedMs}
         const began = performance.now()
         const {boxGraph} = ProjectSkeleton.decode(bytes as ArrayBuffer)
         const whole = sectionOf(boxGraph, true)
@@ -269,7 +269,7 @@ const stemsOnce = async (service: StudioService, bytes: ArrayBufferLike, sampleR
             files.push({file: at, ...stems[at]})
         }
         took.postMs = Math.round(performance.now() - posting)
-        await post(`renders-note`, JSON.stringify({took}))
+        await post(`renders-note`, JSON.stringify({took: {kind: "stems", ...took}}))
         stemsTold = {stems: id, sampleRate, frames: length, files, muted, silent, took}
     })
     // A second reader joined the first's render, so the answer is the render's, not this call's.

@@ -117,6 +117,26 @@ test("the artist joining a waiting render takes it ahead", async () => {
   assert.deepEqual(order, ["make", "artist", "later", "desk"])
 })
 
+test("a loop never waits behind whole songs, and a loop behind a loop says how long it waited", async () => {
+  const {lanes} = lanesFor()
+  const order = []
+  const song = work([]), bounce = work([]), first = work([])
+  const songs = [lanes.once("song", 1, false, async () => {order.push("song"); await song.held}),
+    lanes.once("bounce", 1, true, async () => {order.push("bounce"); await bounce.held})]
+  const loop = lanes.once("loop", 1, false, async () => {order.push("loop"); await first.held}, true)
+  const waited = []
+  const next = lanes.once("next", 1, false, async watch => {order.push("next"); waited.push(watch.waitedMs)}, true)
+  await tick()
+  assert.deepEqual(order, ["song", "bounce", "loop"], "the loop started while both whole songs ran")
+  await new Promise(resolve => setTimeout(resolve, 30))
+  first.go()
+  await Promise.all([loop, next])
+  assert.deepEqual(order, ["song", "bounce", "loop", "next"], "the second loop took the loop's lane, not a song's")
+  assert.ok(waited[0] >= 30, `it waited ${waited[0]} ms`)
+  song.go(); bounce.go()
+  await Promise.all(songs)
+})
+
 test("a render whose sound never comes fails by name, frees its lane, and stops its work", async () => {
   const stuck = []
   const lanes = renderLanes({version: async () => 1, stored: async () => false, note: () => {}, stuck: error => stuck.push(error), stallMs: 20})
