@@ -110,26 +110,27 @@ export class Song {
   // knows which turns wrote, so the count is worked out here: the caller knows only the artist's message ids.
   // A LANDING IS A STEP, A TURN IS ITS LANDINGS (11-14): BRAVOH stamps each apply `<turn>#<landing>`, so each of make's
   // landings has a snapshot of its own and `from` naming one stamp takes back that landing and what came after it. A turn
-  // named by its own id, and `turns`, still take back every landing of it: a run is one step to the artist and the desk.
-  async undo(turns = 1, from) {
+  // named by its own id, and `turns`, take back every landing of it, from its first: a run is one step to the artist and
+  // the desk, and BRAVOH takes the run's writes beside the song (its document, its part files) back whole (11-15).
+  // `taken` names the turns, oldest first. `dry` answers what would go and changes nothing: BRAVOH refuses a revert whose
+  // document moved since before the song goes back, never after.
+  async undo(turns = 1, from, dry = false) {
     const history = this.#history
-    let start = history.length
-    if (from) start = history.findIndex(({turn}) => from.includes(turn) || from.includes(turnOf(turn)))
-    else for (let left = Math.max(1, turns); left > 0 && start > 0; left--) {
-      const turn = turnOf(history[start - 1].turn)
-      while (start > 0 && turnOf(history[start - 1].turn) === turn) start--
-    }
-    const taken = start < 0 ? [] : history.splice(start)
-    if (taken.length === 0) return {undone: 0, turns: 0, taken: []}
+    const named = from ? null : []
+    if (named) for (let at = history.length - 1; at >= 0 && named.length < Math.max(1, turns); at--)
+      if (!named.includes(turnOf(history[at].turn))) named.push(turnOf(history[at].turn))
+    const start = history.findIndex(({turn}) => named ? named.includes(turnOf(turn)) : from.includes(turn) || from.includes(turnOf(turn)))
+    const taken = start < 0 ? [] : dry ? history.slice(start) : history.splice(start)
+    const turned = [...new Set(taken.map(({turn}) => turnOf(turn)))]
+    const answer = {undone: taken.length, turns: turned.length, taken: turned}
+    if (taken.length === 0 || dry) return answer
     const back = taken[0]
     const bytes = back.file ? await readFile(join(this.#snapshots, back.file)) : null
     this.#attach(bytes ? graphOf(asBuffer(bytes)) : null, back.name)
     await this.#save()
     await writeFile(join(this.#snapshots, "index.json"), JSON.stringify(this.#history))
     for (const {file} of taken) if (file) await rm(join(this.#snapshots, file), {force: true})
-    // `taken`: the turns themselves, oldest first, so BRAVOH takes back what those runs wrote beside the song (its document)
-    const turned = [...new Set(taken.map(({turn}) => turnOf(turn)))]
-    return {undone: taken.length, turns: turned.length, taken: turned}
+    return answer
   }
   // ERASED WHOLE (an artist's account erased): no room, no save to come, and nothing of it on disk, its undo included.
   async erase() {

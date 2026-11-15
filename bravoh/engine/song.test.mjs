@@ -50,6 +50,16 @@ test("landings: one landing of a run of three goes back alone, and the run is st
   assert.equal(again.name, "after m1")
 })
 
+// A run that landed, a press between its landings, and its last landing (11-15): the Producer's undo takes the run whole,
+// from its first landing, and the press after it goes with it, as a snapshot does. `dry` names the same and moves nothing.
+test("turns: a run interleaved with a press goes back whole, from its first landing", async () => {
+  const song = await written(["m1", "m2#1", "hand-x", "m2#2"])
+  assert.deepEqual(await song.undo(1, undefined, true), {undone: 3, turns: 2, taken: ["m2", "hand-x"]})
+  assert.equal(song.name, "after m2#2")
+  assert.deepEqual(await song.undo(1), {undone: 3, turns: 2, taken: ["m2", "hand-x"]})
+  assert.equal(song.name, "after m1")
+})
+
 // THE STORE LETS GO (11-14: its heap full 62 minutes after a start). A room nobody is in is forgotten by the room server;
 // before, every room a replace or an undo opened stayed for the life of the process.
 test("rooms: each attach's room goes once its clients leave", async () => {
