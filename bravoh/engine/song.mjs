@@ -120,14 +120,16 @@ export class Song {
       while (start > 0 && turnOf(history[start - 1].turn) === turn) start--
     }
     const taken = start < 0 ? [] : history.splice(start)
-    if (taken.length === 0) return {undone: 0, turns: 0}
+    if (taken.length === 0) return {undone: 0, turns: 0, taken: []}
     const back = taken[0]
     const bytes = back.file ? await readFile(join(this.#snapshots, back.file)) : null
     this.#attach(bytes ? graphOf(asBuffer(bytes)) : null, back.name)
     await this.#save()
     await writeFile(join(this.#snapshots, "index.json"), JSON.stringify(this.#history))
     for (const {file} of taken) if (file) await rm(join(this.#snapshots, file), {force: true})
-    return {undone: taken.length, turns: new Set(taken.map(({turn}) => turnOf(turn))).size}
+    // `taken`: the turns themselves, oldest first, so BRAVOH takes back what those runs wrote beside the song (its document)
+    const turned = [...new Set(taken.map(({turn}) => turnOf(turn)))]
+    return {undone: taken.length, turns: turned.length, taken: turned}
   }
   // ERASED WHOLE (an artist's account erased): no room, no save to come, and nothing of it on disk, its undo included.
   async erase() {

@@ -17,36 +17,36 @@ const written = async turns => {
 // message of its own ("": a woken run) wrote between the others.
 test("from: back to before the first of those messages that wrote, and everything after it", async () => {
   const song = await written(["m1", "m3", "", "m4"])
-  assert.deepEqual(await song.undo(1, ["m2", "m3", "m4"]), {undone: 3, turns: 3})
+  assert.deepEqual(await song.undo(1, ["m2", "m3", "m4"]), {undone: 3, turns: 3, taken: ["m3", "", "m4"]})
   assert.equal(song.name, "after m1")
-  assert.deepEqual(await song.undo(1, ["m2", "m3", "m4"]), {undone: 0, turns: 0})
+  assert.deepEqual(await song.undo(1, ["m2", "m3", "m4"]), {undone: 0, turns: 0, taken: []})
   assert.equal(song.name, "after m1")
-  assert.deepEqual(await song.undo(1, ["m1"]), {undone: 1, turns: 1})
+  assert.deepEqual(await song.undo(1, ["m1"]), {undone: 1, turns: 1, taken: ["m1"]})
   assert.equal(song.name, "start")
 })
 
 test("from: a message that wrote nothing takes nothing back", async () => {
   const song = await written(["m1"])
-  assert.deepEqual(await song.undo(1, ["elsewhere"]), {undone: 0, turns: 0})
+  assert.deepEqual(await song.undo(1, ["elsewhere"]), {undone: 0, turns: 0, taken: []})
   assert.equal(song.name, "after m1")
 })
 
 test("turns: the last ones that wrote, as the Producer's undo asks", async () => {
   const song = await written(["m1", "m2", "m3"])
-  assert.deepEqual(await song.undo(2), {undone: 2, turns: 2})
+  assert.deepEqual(await song.undo(2), {undone: 2, turns: 2, taken: ["m2", "m3"]})
   assert.equal(song.name, "after m1")
 })
 
 // Each of make's landings is stamped `<turn>#<landing>` (BRAVOH's `studio_apply`), so each is a step of its own.
 test("landings: one landing of a run of three goes back alone, and the run is still one turn", async () => {
   const song = await written(["m1", "m2#1", "m2#2", "m2#3"])
-  assert.deepEqual(await song.undo(1, ["m2#3"]), {undone: 1, turns: 1})
+  assert.deepEqual(await song.undo(1, ["m2#3"]), {undone: 1, turns: 1, taken: ["m2"]})
   assert.equal(song.name, "after m2#2")
   // the Producer's undo and "Revert to here" by the message take the rest of the run, never m1
-  assert.deepEqual(await song.undo(1), {undone: 2, turns: 1})
+  assert.deepEqual(await song.undo(1), {undone: 2, turns: 1, taken: ["m2"]})
   assert.equal(song.name, "after m1")
   const again = await written(["m1", "m2#1", "m2#2"])
-  assert.deepEqual(await again.undo(1, ["m2"]), {undone: 2, turns: 1})
+  assert.deepEqual(await again.undo(1, ["m2"]), {undone: 2, turns: 1, taken: ["m2"]})
   assert.equal(again.name, "after m1")
 })
 
@@ -79,5 +79,5 @@ test("close: the song is saved and let go, and opens from disk as it was", async
   const again = await Song.open(song.dir, "key")
   assert.deepEqual([...again.graph.checksum()], checksum)
   assert.equal(again.name, "after m2")
-  assert.deepEqual(await again.undo(1), {undone: 1, turns: 1})
+  assert.deepEqual(await again.undo(1), {undone: 1, turns: 1, taken: ["m2"]})
 })
